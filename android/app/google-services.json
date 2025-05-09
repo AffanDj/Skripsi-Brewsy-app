@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1084908102787",
+    "project_id": "brewsypos",
+    "storage_bucket": "brewsypos.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1084908102787:android:8619967957ec3aad75e7b6",
+        "android_client_info": {
+          "package_name": "com.example.brewsy_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDKaX3rX5LGKepoZKaMbFYJkOtrrQiHNeo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
