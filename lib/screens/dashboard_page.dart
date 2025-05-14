@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 // import '../widgets/sidebar_button.dart';
-// import '../widgets/summary_box.dart';
+import '../widgets/summary_box.dart';
 // import '../widgets/formatted_date.dart';
 
 // Define your app's primary color theme based on the logo colors
@@ -53,7 +53,8 @@ class _DashboardPageState extends State<DashboardPage> {
       builder: (ctx) => AlertDialog(
         backgroundColor: backgroundColor,
         title: Text('Konfirmasi Logout', style: TextStyle(color: primaryColor)),
-        content: Text('Apakah Anda yakin ingin keluar?', style: TextStyle(color: primaryColor)),
+        content:
+        Text('Apakah Anda yakin ingin keluar?', style: TextStyle(color: primaryColor)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -151,8 +152,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _getFormattedDate() {
     final now = DateTime.now();
-    final formattedDate =
-    DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(now);
+    final formattedDate = DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(now);
     final formattedTime = DateFormat('HH:mm').format(now);
     return Text(
       '$formattedDate - $formattedTime',
@@ -160,54 +160,6 @@ class _DashboardPageState extends State<DashboardPage> {
         fontSize: 16,
         color: primaryColor,
         fontWeight: FontWeight.w600,
-
-      ),
-    );
-  }
-
-  Widget _buildSummaryBox({
-    required String label,
-    required String value,
-    required String subtitle,
-    required Color borderColor,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border(left: BorderSide(color: borderColor, width: 6)),
-          boxShadow: [
-            BoxShadow(
-              color: borderColor.withOpacity(0.15),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label,
-                style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: primaryColor.withOpacity(0.7))),
-            const SizedBox(height: 10),
-            Text(value,
-                style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: primaryColor)),
-            const SizedBox(height: 6),
-            Text(subtitle,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w400,
-                    color: primaryColor.withOpacity(0.4))),
-          ],
-        ),
       ),
     );
   }
@@ -215,16 +167,6 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // backgroundColor: backgroundColor,
-      // appBar: AppBar(
-      //   automaticallyImplyLeading: false,
-      //   backgroundColor: primaryColor.withOpacity(0.1),
-      //   elevation: 0,
-      //   title: Text(
-      //     'Dashboard Page',
-      //     style: TextStyle(color: primaryColor, fontWeight: FontWeight.w600),
-      //   ),
-      // ),
       body: Row(
         children: [
           // Sidebar
@@ -297,7 +239,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   const SizedBox(height: 24),
                   Row(
                     children: [
-                      _buildSummaryBox(
+                      SummaryBox(
                         label: 'Pendapatan',
                         value:
                         'Rp ${NumberFormat('#,##0.00', 'id_ID').format(totalRevenue)}',
@@ -305,7 +247,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         borderColor: secondaryColor,
                       ),
                       const SizedBox(width: 24),
-                      _buildSummaryBox(
+                      SummaryBox(
                         label: 'Jumlah Order',
                         value: totalOrders.toString(),
                         subtitle: 'Total Order',
@@ -338,8 +280,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           );
                         }
 
-                        final aggregatedData =
-                        <String, Map<String, dynamic>>{};
+                        final aggregatedData = <String, Map<String, dynamic>>{};
 
                         for (var doc in snapshot.data!.docs) {
                           final data = doc.data() as Map<String, dynamic>;
@@ -374,18 +315,20 @@ class _DashboardPageState extends State<DashboardPage> {
                                     fontWeight: FontWeight.w600))),
                             DataCell(Center(
                                 child: Text(totalQuantity.toString(),
-                                    style: TextStyle(fontSize: 20, color: primaryColor)))),
+                                    style: TextStyle(
+                                        fontSize: 20, color: primaryColor)))),
                             DataCell(Center(
                                 child: Text(
                                     'Rp ${NumberFormat('#,##0.00', 'id_ID').format(itemPrice)}',
-                                    style: TextStyle(fontSize: 20, color: primaryColor)))),
+                                    style: TextStyle(
+                                        fontSize: 20, color: primaryColor)))),
                             DataCell(Center(
-                              child: Text(
-                                'Rp ${NumberFormat('#,##0.00', 'id_ID').format(totalRevenue)}',
-                                style: TextStyle(
-                                    fontSize: 20,
-                                    color: secondaryColor,
-                                    fontWeight: FontWeight.bold)))),
+                                child: Text(
+                                    'Rp ${NumberFormat('#,##0.00', 'id_ID').format(totalRevenue)}',
+                                    style: TextStyle(
+                                        fontSize: 20,
+                                        color: secondaryColor,
+                                        fontWeight: FontWeight.bold)))),
                           ]);
                         }).toList();
 
