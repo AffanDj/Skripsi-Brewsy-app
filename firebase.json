@@ -1,1 +1,55 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"brewsypos","appId":"1:1084908102787:android:8619967957ec3aad75e7b6","fileOutput":"android/app/google-services.json"}},"ios":{"default":{"projectId":"brewsypos","appId":"1:1084908102787:ios:18074f294b45b9fe75e7b6","uploadDebugSymbols":false,"fileOutput":"ios/Runner/GoogleService-Info.plist"}},"macos":{"default":{"projectId":"brewsypos","appId":"1:1084908102787:ios:18074f294b45b9fe75e7b6","uploadDebugSymbols":false,"fileOutput":"macos/Runner/GoogleService-Info.plist"}},"dart":{"lib/firebase_options.dart":{"projectId":"brewsypos","configurations":{"android":"1:1084908102787:android:8619967957ec3aad75e7b6","ios":"1:1084908102787:ios:18074f294b45b9fe75e7b6","macos":"1:1084908102787:ios:18074f294b45b9fe75e7b6","web":"1:1084908102787:web:07335066790c06aa75e7b6","windows":"1:1084908102787:web:fda2fd9c4594811275e7b6"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "brewsypos",
+          "appId": "1:1084908102787:android:8619967957ec3aad75e7b6",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "brewsypos",
+          "appId": "1:1084908102787:ios:18074f294b45b9fe75e7b6",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "macos": {
+        "default": {
+          "projectId": "brewsypos",
+          "appId": "1:1084908102787:ios:18074f294b45b9fe75e7b6",
+          "uploadDebugSymbols": false,
+          "fileOutput": "macos/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "brewsypos",
+          "configurations": {
+            "android": "1:1084908102787:android:8619967957ec3aad75e7b6",
+            "ios": "1:1084908102787:ios:18074f294b45b9fe75e7b6",
+            "macos": "1:1084908102787:ios:18074f294b45b9fe75e7b6",
+            "web": "1:1084908102787:web:07335066790c06aa75e7b6",
+            "windows": "1:1084908102787:web:fda2fd9c4594811275e7b6"
+          }
+        }
+      }
+    }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "runtime": "nodejs18",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ]
+
+    }
+  ]
+}
