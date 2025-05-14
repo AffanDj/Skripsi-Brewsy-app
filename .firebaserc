@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "brewsypos",
+    "firebase functions:delete sendCsvToEmail --region=us-central1": "brewsypos"
+  },
+  "targets": {},
+  "etags": {}
+}
