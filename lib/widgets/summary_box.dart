@@ -1,29 +1,56 @@
 import 'package:flutter/material.dart';
 
+const Color primaryColor = Color(0xFF01479E);
+const Color secondaryColor = Color(0xFFFF6F00);
+const Color backgroundColor = Color(0xFFF5F7FA);
+
+
 class SummaryBox extends StatelessWidget {
   final String label;
   final String value;
   final String subtitle;
+  final Color borderColor;
 
-  SummaryBox({required this.label, required this.value, required this.subtitle});
+  SummaryBox(
+      {required this.label, required this.value, required this.subtitle, required this.borderColor});
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
       child: Container(
-        padding: EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: const Color(0xFF1A72DD),
-          borderRadius: BorderRadius.circular(8.0),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border(left: BorderSide(color: borderColor, width: 6)),
+          boxShadow: [
+            BoxShadow(
+              color: borderColor.withOpacity(0.15),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: 16, color: Colors.white)),
-            SizedBox(height: 10),
-            Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            SizedBox(height: 4),
-            Text(subtitle, style: TextStyle(color: Colors.white)),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: primaryColor.withOpacity(0.7))),
+            const SizedBox(height: 10),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: primaryColor)),
+            const SizedBox(height: 6),
+            Text(subtitle,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    color: primaryColor.withOpacity(0.4))),
           ],
         ),
       ),

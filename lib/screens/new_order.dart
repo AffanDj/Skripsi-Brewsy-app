@@ -175,6 +175,8 @@ class _NewOrderPageState extends State<NewOrderPage> {
   }
 
   void _showCustomerInputDialog() {
+    final _formKey = GlobalKey<FormState>();
+
     final TextEditingController nameController = TextEditingController();
     final TextEditingController emailController = TextEditingController();
     final TextEditingController phoneController = TextEditingController();
@@ -197,78 +199,132 @@ class _NewOrderPageState extends State<NewOrderPage> {
       builder: (context) {
         return AlertDialog(
           backgroundColor: backgroundColor,
-          title: Text('Customer Information', style: TextStyle(color: primaryColor)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Customer Information', style: TextStyle(color: primaryColor, fontWeight: FontWeight.w600, fontSize: 20)),
           content: SingleChildScrollView(
             child: StatefulBuilder(
               builder: (BuildContext context, StateSetter setState) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nameController,
-                      decoration: InputDecoration(
-                        labelText: 'Name',
-                        labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
-                        focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: secondaryColor),
+                return SizedBox(
+                  width: 400,
+                  height: 300,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: nameController,
+                        decoration: InputDecoration(
+                          labelText: 'Name',
+                          labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
+                          prefixIcon: Icon(Icons.person, color: primaryColor.withOpacity(0.7)),
+                          focusedBorder: UnderlineInputBorder(
+                            borderSide: BorderSide(color: secondaryColor),
+                          ),
                         ),
+                        style: TextStyle(color: primaryColor),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter your name';
+                          }
+                          return null;
+                        },
                       ),
-                      style: TextStyle(color: primaryColor),
-                    ),
-                    TextField(
-                      controller: emailController,
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
-                        focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: secondaryColor),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: emailController,
+                        decoration: InputDecoration(
+                          labelText: 'Email',
+                          labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
+                          prefixIcon: Icon(Icons.email, color: primaryColor.withOpacity(0.7)),
+                          focusedBorder: UnderlineInputBorder(
+                            borderSide: BorderSide(color: secondaryColor),
+                          ),
                         ),
+                        keyboardType: TextInputType.emailAddress,
+                        style: TextStyle(color: primaryColor),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter your email';
+                          }
+                          if (!validateEmail(value.trim())) {
+                            return 'Please enter a valid email';
+                          }
+                          return null;
+                        },
                       ),
-                      keyboardType: TextInputType.emailAddress,
-                      style: TextStyle(color: primaryColor),
-                    ),
-                    TextField(
-                      controller: phoneController,
-                      decoration: InputDecoration(
-                        labelText: 'Phone Number',
-                        labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
-                        focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: secondaryColor),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: phoneController,
+                        decoration: InputDecoration(
+                          labelText: 'Phone Number',
+                          labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
+                          prefixIcon: Icon(Icons.phone, color: primaryColor.withOpacity(0.7)),
+                          focusedBorder: UnderlineInputBorder(
+                            borderSide: BorderSide(color: secondaryColor),
+                          ),
                         ),
+                        keyboardType: TextInputType.phone,
+                        style: TextStyle(color: primaryColor),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter your phone number';
+                          }
+                          if (!validatePhone(value.trim())) {
+                            return 'Please enter a valid phone number';
+                          }
+                          return null;
+                        },
                       ),
-                      keyboardType: TextInputType.phone,
-                      style: TextStyle(color: primaryColor),
-                    ),
-                    TextField(
-                      controller: tableController,
-                      decoration: InputDecoration(
-                        labelText: 'Table Number',
-                        labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
-                        focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: secondaryColor),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: tableController,
+                        decoration: InputDecoration(
+                          labelText: 'Table Number',
+                          labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
+                          prefixIcon: Icon(Icons.table_chart, color: primaryColor.withOpacity(0.7)),
+                          focusedBorder: UnderlineInputBorder(
+                            borderSide: BorderSide(color: secondaryColor),
+                          ),
                         ),
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(color: primaryColor),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter your table number';
+                          }
+                          if (int.tryParse(value.trim()) == null) {
+                            return 'Table number must be a number';
+                          }
+                          return null;
+                        },
                       ),
-                      keyboardType: TextInputType.number,
-                      style: TextStyle(color: primaryColor),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButton<String>(
-                      value: paymentMethod,
-                      onChanged: (String? newValue) {
-                        setState(() {
-                          paymentMethod = newValue!;
-                        });
-                      },
-                      items: <String>['Cash', 'Virtual']
-                          .map<DropdownMenuItem<String>>((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value, style: TextStyle(color: primaryColor)),
-                        );
-                      }).toList(),
-                      dropdownColor: backgroundColor,
-                    ),
-                  ],
+                      const SizedBox(height: 20),
+                      DropdownButtonFormField<String>(
+                        value: paymentMethod,
+                        onChanged: (String? newValue) {
+                          setState(() {
+                            paymentMethod = newValue!;
+                          });
+                        },
+                        items: <String>['Cash', 'Virtual']
+                            .map<DropdownMenuItem<String>>((String value) {
+                          return DropdownMenuItem<String>(
+                            value: value,
+                            child: Text(value, style: TextStyle(color: primaryColor)),
+                          );
+                        }).toList(),
+                        dropdownColor: backgroundColor,
+                        decoration: InputDecoration(
+                          labelText: 'Payment Method',
+                          labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
+                          prefixIcon: Icon(Icons.payment, color: primaryColor.withOpacity(0.7)),
+                          focusedBorder: UnderlineInputBorder(
+                            borderSide: BorderSide(color: secondaryColor),
+                          ),
+                        ),
+                        style: TextStyle(color: primaryColor),
+                      ),
+                    ],
+                  ),
                 );
               },
             ),
@@ -280,33 +336,17 @@ class _NewOrderPageState extends State<NewOrderPage> {
             ),
             ElevatedButton(
               onPressed: () {
-                if (nameController.text.isNotEmpty &&
-                    emailController.text.isNotEmpty &&
-                    phoneController.text.isNotEmpty &&
-                    tableController.text.isNotEmpty) {
-                  if (validateEmail(emailController.text) &&
-                      validatePhone(phoneController.text)) {
-                    Navigator.of(context).pop();
+                if (_formKey.currentState?.validate() ?? false) {
+                  Navigator.of(context).pop();
 
-                    initiatePayment(
-                      cart, // Your cart data
-                      nameController.text, // Customer name
-                      emailController.text, // Customer email
-                      phoneController.text, // Customer phone
-                      tableController.text, // Customer table number
-                      paymentMethod, // Pass payment method here
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('Please enter valid email and phone number!'),
-                      backgroundColor: Colors.redAccent,
-                    ));
-                  }
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('Please fill all the fields!'),
-                    backgroundColor: Colors.redAccent,
-                  ));
+                  initiatePayment(
+                    cart, // Your cart data
+                    nameController.text.trim(), // Customer name
+                    emailController.text.trim(), // Customer email
+                    phoneController.text.trim(), // Customer phone
+                    tableController.text.trim(), // Customer table number
+                    paymentMethod, // Pass payment method here
+                  );
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: secondaryColor),

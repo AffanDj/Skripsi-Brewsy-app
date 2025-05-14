@@ -154,12 +154,22 @@ class _LoginPageScreenState extends State<LoginPageScreen> {
                 controller: _emailController,
                 decoration: _inputDecoration('Email'),
                 keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) {
+                  // Move focus to password field when pressing enter on email
+                  FocusScope.of(context).nextFocus();
+                },
               ),
               SizedBox(height: 20),
               TextField(
                 controller: _passwordController,
                 obscureText: true,
                 decoration: _inputDecoration('Password'),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) {
+                  // Trigger login when pressing enter on password field
+                  _loginUser();
+                },
               ),
               SizedBox(height: 10),
               Row(
