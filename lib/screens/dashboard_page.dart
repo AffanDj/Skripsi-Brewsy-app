@@ -1,4 +1,4 @@
-import 'package:cloud_functions/cloud_functions.dart'; // Import Firebase Cloud Functions
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -9,10 +9,11 @@ import 'dart:io';
 import 'package:csv/csv.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:html' as html;
 import 'dart:convert';
 
+// Define your app's primary color theme based on the logo colors
 const Color primaryColor = Color(0xFF01479E); // Dark Blue
 const Color secondaryColor = Color(0xFFFF6F00); // Orange
 const Color backgroundColor = Color(0xFFF5F7FA); // Light background
@@ -29,15 +30,22 @@ class _DashboardPageState extends State<DashboardPage> {
   DateTime? _selectedDate;
   FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  Map<String, Map<String, dynamic>> aggregatedData = {};
+
   @override
   void initState() {
+    _selectedDate = DateTime(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
     super.initState();
-    _selectedDate = DateTime.now();
     _fetchData();
+    debugPrint('date: $_selectedDate');
   }
 
   Future<void> _fetchData() async {
-    QuerySnapshot snapshot = await _firestore.collection('transactionDetails').get();
+    QuerySnapshot snapshot = await FirebaseFirestore.instance.collection('transactionDetails').get();
 
     double revenueSum = 0.0;
     int ordersSum = 0;
@@ -69,17 +77,19 @@ class _DashboardPageState extends State<DashboardPage> {
         _selectedDate = picked;
       });
     }
+    debugPrint('tanggalnya: $_selectedDate');
   }
 
-  Future<void> _downloadCsvFile(String csvData) async {
+  Future<void> downloadCsvFile(String csvData) async {
     try {
       if (kIsWeb) {
+        // ✅ Web: download lewat AnchorElement
         final String formattedDate = DateFormat('yyyyMMdd').format(DateTime.now());
         final bytes = utf8.encode(csvData);
         final blob = html.Blob([bytes]);
         final url = html.Url.createObjectUrlFromBlob(blob);
         final anchor = html.AnchorElement(href: url)
-          ..setAttribute('download', 'laporan_$formattedDate.csv')
+          ..setAttribute('download', 'laporan$formattedDate.csv')
           ..click();
         html.Url.revokeObjectUrl(url);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -88,6 +98,7 @@ class _DashboardPageState extends State<DashboardPage> {
         return;
       }
 
+      // ✅ Android/iOS
       Directory? directory;
 
       if (Platform.isAndroid) {
@@ -136,7 +147,8 @@ class _DashboardPageState extends State<DashboardPage> {
     DateTime startOfDay = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day);
     DateTime endOfDay = startOfDay.add(Duration(days: 1)).subtract(Duration(seconds: 1));
 
-    QuerySnapshot orderSnapshot = await _firestore
+    // Step 1: Ambil orderID dari orders
+    QuerySnapshot orderSnapshot = await FirebaseFirestore.instance
         .collection('orders')
         .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
         .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
@@ -155,7 +167,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     for (int i = 0; i < orderIDs.length; i += 10) {
       final batchIds = orderIDs.sublist(i, (i + 10 > orderIDs.length) ? orderIDs.length : i + 10);
-      QuerySnapshot transactionSnapshot = await _firestore
+      QuerySnapshot transactionSnapshot = await FirebaseFirestore.instance
           .collection('transactionDetails')
           .where('orderId', whereIn: batchIds)
           .get();
@@ -184,6 +196,7 @@ class _DashboardPageState extends State<DashboardPage> {
       }
     }
 
+    // Step 3: Convert to CSV
     List<List<String>> csvData = [
       ['Nama Item', 'Jumlah Order', 'Harga', 'Pendapatan'],
       ...aggregatedData.entries.map((entry) => [
@@ -194,11 +207,13 @@ class _DashboardPageState extends State<DashboardPage> {
       ]),
     ];
 
+    debugPrint('Download CSV Data: $csvData');
+
     String generateCsvData(List<List<String>> data) {
       return data.map((row) => row.map((cell) => '"$cell"').join(';')).join('\n');
     }
     String csvString = generateCsvData(csvData);
-    await _downloadCsvFile(csvString);
+    await downloadCsvFile(csvString);
   }
 
   void _showLogoutDialog(BuildContext context) {
@@ -230,6 +245,7 @@ class _DashboardPageState extends State<DashboardPage> {
       _selectedIndex = index;
     });
 
+    // Navigasi berdasarkan index
     switch (index) {
       case 0:
         Navigator.of(context).pushNamed('/newOrder');
@@ -341,23 +357,11 @@ class _DashboardPageState extends State<DashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label,
-                style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: primaryColor.withOpacity(0.7))),
+            Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: primaryColor.withOpacity(0.7))),
             const SizedBox(height: 10),
-            Text(value,
-                style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: primaryColor)),
+            Text(value, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: primaryColor)),
             const SizedBox(height: 6),
-            Text(subtitle,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w400,
-                    color: primaryColor.withOpacity(0.4))),
+            Text(subtitle, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: primaryColor.withOpacity(0.4))),
           ],
         ),
       ),
@@ -390,7 +394,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
                 const SizedBox(height: 18),
                 _buildSidebarButton(
-                  icon: Icons.inventory_2_outlined,
+                  icon: Icons.inventory_2_outlined ,
                   label: 'Product',
                   selected: _selectedIndex == 2,
                   onPressed: () => _onSidebarButtonTapped(2),
@@ -456,17 +460,24 @@ class _DashboardPageState extends State<DashboardPage> {
                   const SizedBox(height: 24),
                   Expanded(
                     child: StreamBuilder<QuerySnapshot>(
-                      stream: _firestore.collection('transactionDetails').snapshots(),
+                      stream: FirebaseFirestore.instance.collection('transactionDetails').snapshots(),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator(color: primaryColor));
+                          return const Center(
+                            child: CircularProgressIndicator(
+                              color: primaryColor,
+                            ),
+                          );
                         }
 
                         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                           return Center(
                             child: Text(
                               'No data available',
-                              style: TextStyle(color: primaryColor.withOpacity(0.4), fontSize: 16),
+                              style: TextStyle(
+                                color: primaryColor.withOpacity(0.4),
+                                fontSize: 16,
+                              ),
                             ),
                           );
                         }
@@ -499,75 +510,123 @@ class _DashboardPageState extends State<DashboardPage> {
                           final totalRevenue = entry.value['revenue'] as double;
 
                           return DataRow(cells: [
-                            DataCell(Text(itemName, style: TextStyle(fontSize: 20, color: primaryColor, fontWeight: FontWeight.w600))),
-                            DataCell(Center(child: Text(totalQuantity.toString(), style: TextStyle(fontSize: 20, color: primaryColor)))),
-                            DataCell(Center(child: Text('Rp ${NumberFormat('#,##0.00', 'id_ID').format(itemPrice)}', style: TextStyle(fontSize: 20, color: primaryColor)))),
-                            DataCell(Center(child: Text('Rp ${NumberFormat('#,##0.00', 'id_ID').format(totalRevenue)}', style: TextStyle(fontSize: 20, color: secondaryColor, fontWeight: FontWeight.bold)))),
+                            DataCell(Text(itemName,
+                                style: TextStyle(
+                                    fontSize: 20,
+                                    color: primaryColor,
+                                    fontWeight: FontWeight.w600))),
+                            DataCell(Center(
+                                child: Text(totalQuantity.toString(),
+                                    style: TextStyle(
+                                        fontSize: 20, color: primaryColor)))),
+                            DataCell(Center(
+                                child: Text(
+                                  'Rp ${NumberFormat('#,##0.00', 'id_ID').format(itemPrice)}',
+                                  style: TextStyle(fontSize: 20, color: primaryColor),
+                                ))),
+                            DataCell(Center(
+                                child: Text(
+                                  'Rp ${NumberFormat('#,##0.00', 'id_ID').format(totalRevenue)}',
+                                  style: TextStyle(
+                                      fontSize: 20,
+                                      color: secondaryColor,
+                                      fontWeight: FontWeight.bold),
+                                ))),
                           ]);
                         }).toList();
 
                         return PaginatedDataTable(
-                            header: Text('Ordered Items', style: TextStyle(color: primaryColor, fontWeight: FontWeight.w700, fontSize: 25)),
-                            columnSpacing: 24,
-                            headingRowHeight: 56,
-                            dataRowHeight: 56,
-                            columns: [
-                              DataColumn(
-                                label: SizedBox(
-                                  width: 260,
-                                  child: Center(
-                                    child: Text('Nama Item',
-                                        style: TextStyle(
-                                            fontSize: 22,
-                                            color: primaryColor,
-                                            fontWeight: FontWeight.w600)),
-                                  ),
+                          header: Text('Ordered Items',
+                              style: TextStyle(
+                                  color: primaryColor , fontWeight: FontWeight.w700, fontSize: 25)),
+                          columnSpacing: 24,
+                          headingRowHeight: 56,
+                          dataRowHeight: 56,
+                          columns: [
+                            DataColumn(
+                              label: SizedBox(
+                                width: 260,
+                                child: Center(
+                                  child: Text('Nama Item',
+                                      style: TextStyle(
+                                          fontSize: 22,
+                                          color: primaryColor,
+                                          fontWeight: FontWeight.w600)),
                                 ),
                               ),
-                              DataColumn(
-                                label: SizedBox(
-                                  width: 210,
-                                  child: Center(
-                                    child: Text('Jumlah Order',
-                                        style: TextStyle(
-                                            fontSize: 22,
-                                            color: primaryColor,
-                                            fontWeight: FontWeight.w600)),
-                                  ),
+                            ),
+                            DataColumn(
+                              label: SizedBox(
+                                width: 210,
+                                child: Center(
+                                  child: Text('Jumlah Order',
+                                      style: TextStyle(
+                                          fontSize: 22,
+                                          color: primaryColor,
+                                          fontWeight: FontWeight.w600)),
                                 ),
                               ),
-                              DataColumn(
-                                label: SizedBox(
-                                  width: 210,
-                                  child: Center(
-                                    child: Text('Harga',
-                                        style: TextStyle(
-                                            fontSize: 22,
-                                            color: primaryColor,
-                                            fontWeight: FontWeight.w600)),
-                                  ),
+                            ),
+                            DataColumn(
+                              label: SizedBox(
+                                width: 210,
+                                child: Center(
+                                  child: Text('Harga',
+                                      style: TextStyle(
+                                          fontSize: 22,
+                                          color: primaryColor,
+                                          fontWeight: FontWeight.w600)),
                                 ),
                               ),
-                              DataColumn(
-                                label: SizedBox(
-                                  width: 210,
-                                  child: Center(
-                                    child: Text('Pendapatan',
-                                        style: TextStyle(
-                                            fontSize: 22,
-                                            color: primaryColor,
-                                            fontWeight: FontWeight.w600)),
-                                  ),
+                            ),
+                            DataColumn(
+                              label: SizedBox(
+                                width: 210,
+                                child: Center(
+                                  child: Text('Pendapatan',
+                                      style: TextStyle(
+                                          fontSize: 22,
+                                          color: primaryColor,
+                                          fontWeight: FontWeight.w600)),
                                 ),
                               ),
-                            ],
-                        source: _MyDataTableSource(rows),
-                        rowsPerPage: 9,
-                        showCheckboxColumn: false,
-                        horizontalMargin: 24,
+                            ),
+                          ],
+                          source: _MyDataTableSource(rows),
+                          rowsPerPage: 9,
+                          showCheckboxColumn: false,
+                          horizontalMargin: 24,
                         );
                       },
                     ),
+                  ),
+                  SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      SizedBox(
+                        width: 180,
+                        child: TextFormField(
+                          readOnly: true,
+                          onTap: () => _selectDate(context),
+                          decoration: InputDecoration(
+                            labelText: 'Date',
+                            suffixIcon: Icon(Icons.calendar_today),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            isDense: true,
+                          ),
+                          controller: TextEditingController(
+                            text: _selectedDate != null ? DateFormat('MM/dd/yyyy').format(_selectedDate!) : '',
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: _exportToCSV,
+                        icon: Icon(Icons.download),
+                        label: Text('Download to CSV'),
+                      ),
+                    ],
                   ),
                 ],
               ),
