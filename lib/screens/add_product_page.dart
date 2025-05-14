@@ -6,6 +6,10 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
+const Color primaryColor = Color(0xFF01479E); // Dark Blue
+const Color secondaryColor = Color(0xFFFF6F00); // Orange
+const Color backgroundColor = Color(0xFFF5F7FA); // Light background
+
 class AddProductPage extends StatefulWidget {
   @override
   _AddProductPageState createState() => _AddProductPageState();
@@ -13,23 +17,24 @@ class AddProductPage extends StatefulWidget {
 
 class _AddProductPageState extends State<AddProductPage> {
   File? _productImage;
-  Uint8List? _webImage; // Untuk gambar di web
+  Uint8List? _webImage; // For web image bytes
   final ImagePicker _picker = ImagePicker();
 
-  TextEditingController _nameProductController = TextEditingController();
-  TextEditingController _codeProductController = TextEditingController();
-  TextEditingController _priceProductController = TextEditingController();
+  final TextEditingController _nameProductController = TextEditingController();
+  final TextEditingController _codeProductController = TextEditingController();
+  final TextEditingController _priceProductController = TextEditingController();
 
   String? _selectedCategory;
   List<String> _categories = [];
 
+  bool _isLoading = false;
+
   @override
   void initState() {
     super.initState();
-    _fetchCategories(); // Fetch categories on page load
+    _fetchCategories();
   }
 
-  // Fetch categories from Firestore
   Future<void> _fetchCategories() async {
     try {
       QuerySnapshot snapshot =
@@ -39,49 +44,63 @@ class _AddProductPageState extends State<AddProductPage> {
             snapshot.docs.map((doc) => doc['categoryName'].toString()).toList();
       });
     } catch (e) {
-      print('Error fetching categories: $e');
+      debugPrint('Error fetching categories: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load categories'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
   }
 
-  // Fungsi untuk memilih foto
   Future<void> _pickImage() async {
     try {
       if (kIsWeb) {
-        // Logika untuk web
-        final ImagePicker picker = ImagePicker();
-        final XFile? pickedImage = await picker.pickImage(source: ImageSource.gallery);
+        final XFile? pickedImage =
+        await _picker.pickImage(source: ImageSource.gallery);
         if (pickedImage != null) {
           final Uint8List imageBytes = await pickedImage.readAsBytes();
           setState(() {
             _webImage = imageBytes;
+            _productImage = null;
           });
         }
       } else {
-        // Logika untuk Android/iOS
-        final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+        final XFile? pickedFile =
+        await _picker.pickImage(source: ImageSource.gallery);
         if (pickedFile != null) {
           setState(() {
             _productImage = File(pickedFile.path);
+            _webImage = null;
           });
         }
       }
     } catch (e) {
-      print("Error picking image: $e");
+      debugPrint("Error picking image: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to pick image'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
   }
 
-  // Upload foto ke Firebase Storage dan dapatkan URL
   Future<String> _uploadPhoto(String codeProduct) async {
     final String filePath = "products/$codeProduct.jpg";
-    final Reference storageRef = FirebaseStorage.instance.ref().child(filePath);
+    final Reference storageRef =
+    FirebaseStorage.instance.ref().child(filePath);
 
     if (kIsWeb && _webImage != null) {
-      // Upload dari web
       final UploadTask uploadTask = storageRef.putData(_webImage!);
       final TaskSnapshot taskSnapshot = await uploadTask;
       return await taskSnapshot.ref.getDownloadURL();
     } else if (_productImage != null) {
-      // Upload dari Android/iOS
       final UploadTask uploadTask = storageRef.putFile(_productImage!);
       final TaskSnapshot taskSnapshot = await uploadTask;
       return await taskSnapshot.ref.getDownloadURL();
@@ -90,7 +109,6 @@ class _AddProductPageState extends State<AddProductPage> {
     }
   }
 
-  // Simpan data produk ke Firestore
   Future<void> _saveProduct(String photoUrl) async {
     try {
       await FirebaseFirestore.instance.collection('item').doc().set({
@@ -99,182 +117,452 @@ class _AddProductPageState extends State<AddProductPage> {
         'image_url': photoUrl,
         'name': _nameProductController.text.trim(),
         'price': double.parse(_priceProductController.text.trim()),
-        'totalRevenue': 0, // Default value
-        'totalSales': 0, // Default value
+        'totalRevenue': 0,
+        'totalSales': 0,
       });
-      print("Product added successfully!");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Product added successfully!'),
-      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Product added successfully!'),
+            backgroundColor: secondaryColor,
+          ),
+        );
+      }
+      Navigator.of(context).pop();
     } catch (e) {
-      print("Error saving product: $e");
+      debugPrint("Error saving product: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save product'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
   }
 
-  // Fungsi untuk handle submit
   Future<void> _handleSubmit() async {
-    try {
-      if (_nameProductController.text.trim().isEmpty ||
-          _codeProductController.text.trim().isEmpty ||
-          _priceProductController.text.trim().isEmpty ||
-          _selectedCategory == null ||
-          (_productImage == null && _webImage == null)) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    if (_nameProductController.text.trim().isEmpty ||
+        _codeProductController.text.trim().isEmpty ||
+        _priceProductController.text.trim().isEmpty ||
+        _selectedCategory == null ||
+        (_productImage == null && _webImage == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           content: Text('Please complete all fields and upload an image!'),
-        ));
-        return;
-      }
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
 
-      // Upload foto dan dapatkan URL
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
       final String photoUrl =
       await _uploadPhoto(_codeProductController.text.trim());
-
-      // Simpan data produk
       await _saveProduct(photoUrl);
     } catch (e) {
-      print("Error: $e");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Error: $e'),
-      ));
+      debugPrint("Error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
+  Widget _buildSidebarButton({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onPressed,
+  }) {
+    final selectedColor = secondaryColor;
+    final unselectedColor = primaryColor.withOpacity(0.7);
+
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 110,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: selected ? secondaryColor.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: selected
+              ? [
+            BoxShadow(
+              color: secondaryColor.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            )
+          ]
+              : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: selected ? selectedColor : unselectedColor, size: 28),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? selectedColor : unselectedColor,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 13,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _onSidebarButtonTapped(int index) {
+    switch (index) {
+      case 0:
+        Navigator.of(context).pushNamed('/newOrder');
+        break;
+      case 1:
+        Navigator.of(context).pushNamed('/dashboard');
+        break;
+      case 2:
+        Navigator.of(context).pushNamed('/product');
+        break;
+      case 3:
+        Navigator.of(context).pushNamed('/transaction');
+        break;
+      case 4:
+        Navigator.of(context).pushNamed('/category');
+        break;
+      case 5:
+        Navigator.of(context).pushNamed('/payment');
+        break;
+      case 6:
+        Navigator.of(context).pushNamed('/');
+        break;
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameProductController.dispose();
+    _codeProductController.dispose();
+    _priceProductController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      resizeToAvoidBottomInset: false,
-      backgroundColor: Colors.grey[200],
+      backgroundColor: backgroundColor,
       appBar: AppBar(
-        title: Text('Add Product', style: TextStyle(color: Colors.grey[700])),
-        backgroundColor: Colors.grey[300],
+        backgroundColor: backgroundColor,
         elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: primaryColor),
+          onPressed: () => Navigator.of(context).pop(),
+          tooltip: 'Back',
+        ),
       ),
       body: Row(
         children: [
           // Sidebar
           Container(
-            width: 100,
-            color: Colors.grey[100],
+            width: 110,
+            color: backgroundColor,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: [],
+              children: [
+                _buildSidebarButton(
+                  icon: Icons.add_shopping_cart_outlined,
+                  label: 'New Order',
+                  selected: false,
+                  onPressed: () => _onSidebarButtonTapped(0),
+                ),
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.show_chart_outlined,
+                  label: 'Dashboard',
+                  selected: false,
+                  onPressed: () => _onSidebarButtonTapped(1),
+                ),
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.inventory_2_outlined,
+                  label: 'Product',
+                  selected: true,
+                  onPressed: () => _onSidebarButtonTapped(2),
+                ),
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.swap_horiz_outlined,
+                  label: 'Transaction',
+                  selected: false,
+                  onPressed: () => _onSidebarButtonTapped(3),
+                ),
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.label_outline,
+                  label: 'Category',
+                  selected: false,
+                  onPressed: () => _onSidebarButtonTapped(4),
+                ),
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: 'Payment',
+                  selected: false,
+                  onPressed: () => _onSidebarButtonTapped(5),
+                ),
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.exit_to_app,
+                  label: 'Logout',
+                  selected: false,
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        backgroundColor: backgroundColor,
+                        title: Text('Konfirmasi Logout', style: TextStyle(color: primaryColor)),
+                        content: Text('Apakah Anda yakin ingin keluar?', style: TextStyle(color: primaryColor)),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: Text('Tidak', style: TextStyle(color: primaryColor)),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              Navigator.of(context).pushNamed('/');
+                            },
+                            child: Text('Ya', style: TextStyle(color: primaryColor)),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
 
           // Main Content
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(height: 20),
                   Expanded(
                     child: Card(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 4,
                       child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Add New Product',
-                              style: TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold),
-                            ),
-                            Divider(),
-                            // Form fields
-                            TextField(
-                              controller: _nameProductController,
-                              decoration:
-                              InputDecoration(labelText: 'Nama Item'),
-                            ),
-                            SizedBox(height: 5),
-                            TextField(
-                              controller: _codeProductController,
-                              decoration:
-                              InputDecoration(labelText: 'Kode Item'),
-                            ),
-                            SizedBox(height: 5),
-                            DropdownButtonFormField<String>(
-                              value: _selectedCategory,
-                              decoration: InputDecoration(labelText: 'Kategori'),
-                              items: _categories.map((category) {
-                                return DropdownMenuItem(
-                                  value: category,
-                                  child: Text(category),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedCategory = value;
-                                });
-                              },
-                            ),
-                            SizedBox(height: 5),
-                            TextField(
-                              controller: _priceProductController,
-                              decoration: InputDecoration(labelText: 'Harga'),
-                              keyboardType: TextInputType.number,
-                            ),
-                            SizedBox(height: 20),
-                            Text(
-                              'Upload Foto',
-                              style: TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                            SizedBox(height: 10),
-                            GestureDetector(
-                              onTap: _pickImage,
-                              child: Container(
-                                width: double.infinity,
-                                height: 80,
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey),
-                                  borderRadius: BorderRadius.circular(10),
+                        padding: const EdgeInsets.all(24),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Name
+                              TextField(
+                                controller: _nameProductController,
+                                decoration: InputDecoration(
+                                  labelText: 'Nama Item',
+                                  labelStyle: TextStyle(color: primaryColor),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(color: secondaryColor, width: 2),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(color: primaryColor.withOpacity(0.3)),
+                                  ),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                                 ),
-                                child: kIsWeb && _webImage != null
-                                    ? Image.memory(
-                                  _webImage!,
-                                  fit: BoxFit.cover,
-                                )
-                                    : _productImage != null
-                                    ? Image.file(
-                                  _productImage!,
-                                  fit: BoxFit.cover,
-                                )
-                                    : Center(
-                                  child: Icon(
-                                    Icons.add_a_photo,
-                                    color: Colors.grey,
-                                    size: 40,
+                                style: TextStyle(color: primaryColor, fontSize: 16),
+                              ),
+                              const SizedBox(height: 16),
+                              // Code
+                              TextField(
+                                controller: _codeProductController,
+                                decoration: InputDecoration(
+                                  labelText: 'Kode Item',
+                                  labelStyle: TextStyle(color: primaryColor),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(color: secondaryColor, width: 2),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(color: primaryColor.withOpacity(0.3)),
+                                  ),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                ),
+                                style: TextStyle(color: primaryColor, fontSize: 16),
+                              ),
+                              const SizedBox(height: 16),
+                              // Category Dropdown
+                              InputDecorator(
+                                decoration: InputDecoration(
+                                  labelText: 'Kategori',
+                                  labelStyle: TextStyle(color: primaryColor),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(color: secondaryColor, width: 2),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(color: primaryColor.withOpacity(0.3)),
+                                  ),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: _selectedCategory,
+                                    isExpanded: true,
+                                    iconEnabledColor: primaryColor,
+                                    hint: Text(
+                                      'Pilih Kategori',
+                                      style: TextStyle(color: primaryColor.withOpacity(0.5)),
+                                    ),
+                                    items: _categories.map((category) {
+                                      return DropdownMenuItem<String>(
+                                        value: category,
+                                        child: Text(
+                                          category,
+                                          style: TextStyle(color: primaryColor),
+                                        ),
+                                      );
+                                    }).toList(),
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _selectedCategory = value;
+                                      });
+                                    },
                                   ),
                                 ),
                               ),
-                            ),
-                            SizedBox(height: 20),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 50,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF1E9ACF),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10.0),
+                              const SizedBox(height: 16),
+                              // Price
+                              TextField(
+                                controller: _priceProductController,
+                                decoration: InputDecoration(
+                                  labelText: 'Harga',
+                                  labelStyle: TextStyle(color: primaryColor),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(color: secondaryColor, width: 2),
                                   ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(color: primaryColor.withOpacity(0.3)),
+                                  ),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                                 ),
-                                onPressed: _handleSubmit,
-                                child: Text(
-                                  'Add Item',
-                                  style: TextStyle(
+                                keyboardType: TextInputType.number,
+                                style: TextStyle(color: primaryColor, fontSize: 16),
+                              ),
+                              const SizedBox(height: 24),
+                              Text(
+                                'Upload Foto',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: primaryColor,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              GestureDetector(
+                                onTap: _pickImage,
+                                child: Container(
+                                  width: double.infinity,
+                                  height: 210,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: primaryColor.withOpacity(0.3)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black12,
+                                        blurRadius: 8,
+                                        offset: Offset(0, 4),
+                                      ),
+                                    ],
                                     color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
+                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: kIsWeb && _webImage != null
+                                      ? Image.memory(_webImage!, fit: BoxFit.cover)
+                                      : _productImage != null
+                                      ? Image.file(_productImage!, fit: BoxFit.cover)
+                                      : Center(
+                                    child: Icon(
+                                      Icons.add_a_photo,
+                                      color: primaryColor.withOpacity(0.5),
+                                      size: 48,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 32),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 50,
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: secondaryColor,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    elevation: 4,
+                                  ),
+                                  onPressed: _isLoading ? null : _handleSubmit,
+                                  child: _isLoading
+                                      ? SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 3,
+                                    ),
+                                  )
+                                      : Text(
+                                    'Add Item',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

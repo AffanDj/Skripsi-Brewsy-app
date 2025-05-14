@@ -11,6 +11,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+// Define your app's primary color theme based on the logo colors
+const Color primaryColor = Color(0xFF01479E); // Dark Blue
+const Color secondaryColor = Color(0xFFFF6F00); // Orange
+const Color backgroundColor = Color(0xFFF5F7FA); // Light background
+
 class ProductPage extends StatefulWidget {
   @override
   _ProductPageState createState() => _ProductPageState();
@@ -18,7 +23,7 @@ class ProductPage extends StatefulWidget {
 
 class ProductDataTableSource extends DataTableSource {
   final List<QueryDocumentSnapshot> data;
-  final Function(QueryDocumentSnapshot) showEditDialog; // Callback tanpa context
+  final Function(QueryDocumentSnapshot) showEditDialog;
 
   ProductDataTableSource(this.data, {required this.showEditDialog});
 
@@ -34,24 +39,40 @@ class ProductDataTableSource extends DataTableSource {
 
     return DataRow(cells: [
       DataCell(
-        Center(child: Text(name)),
+        Center(
+            child: Text(name,
+                style: TextStyle(
+                    fontSize: 20,
+                    color: primaryColor,
+                    fontWeight: FontWeight.w600))),
         onTap: () {
-          showEditDialog(data[index]); // Panggil showEditDialog tanpa context
+          showEditDialog(data[index]);
         },
       ),
-      DataCell(Center(child:Text(price)),
+      DataCell(
+        Center(
+            child: Text(price,
+                style: TextStyle(
+                    fontSize: 20,
+                    color: primaryColor.withOpacity(0.85),
+                    fontWeight: FontWeight.w500))),
         onTap: () {
-          showEditDialog(data[index]); // Panggil showEditDialog tanpa context
+          showEditDialog(data[index]);
         },
       ),
-      DataCell(Center(child: Text(category)),
+      DataCell(
+        Center(
+            child: Text(category,
+                style: TextStyle(
+                    fontSize: 20,
+                    color: primaryColor.withOpacity(0.7),
+                    fontWeight: FontWeight.w500))),
         onTap: () {
-          showEditDialog(data[index]); // Panggil showEditDialog tanpa context
+          showEditDialog(data[index]);
         },
       ),
     ]);
   }
-
 
   @override
   bool get isRowCountApproximate => false;
@@ -63,7 +84,6 @@ class ProductDataTableSource extends DataTableSource {
   int get selectedRowCount => 0;
 }
 
-
 class _ProductPageState extends State<ProductPage> {
   int _selectedIndex = 2; // Default selected index
   TextEditingController _searchController = TextEditingController();
@@ -72,48 +92,42 @@ class _ProductPageState extends State<ProductPage> {
   double totalRevenue = 0.0;
   int totalOrders = 0;
 
-
-
-
-
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_filterData); // Tambahkan listener
+    _searchController.addListener(_filterData);
     _fetchData();
   }
 
   Future<void> _fetchData() async {
-    // Ambil data dari Firestore dan hitung totalRevenue dan totalOrders
-    QuerySnapshot snapshot = await FirebaseFirestore.instance.collection('transactionDetails').get();
+    QuerySnapshot snapshot =
+    await FirebaseFirestore.instance.collection('transactionDetails').get();
 
-    // Reset total pendapatan dan jumlah order
-    totalRevenue = 0.0;
-    totalOrders = 0;
+    double revenueSum = 0.0;
+    int ordersSum = 0;
 
     for (var doc in snapshot.docs) {
       var data = doc.data() as Map<String, dynamic>;
-      int quantity = (data['quantity'] as num).toInt(); // Pastikan quantity selalu integer
-      double price = (data['price'] as num).toDouble(); // Pastikan price selalu double
+      int quantity = (data['quantity'] as num).toInt();
+      double price = (data['price'] as num).toDouble();
       double revenue = quantity * price;
 
-      totalOrders += quantity; // Tambahkan jumlah order
-      totalRevenue += revenue; // Tambahkan total pendapatan
+      ordersSum += quantity;
+      revenueSum += revenue;
     }
 
-    // Memperbarui state untuk menampilkan nilai baru
-    setState(() {});
+    setState(() {
+      totalRevenue = revenueSum;
+      totalOrders = ordersSum;
+    });
   }
 
   @override
   void dispose() {
-    _searchController.removeListener(_filterData); // Hapus listener
+    _searchController.removeListener(_filterData);
     _searchController.dispose();
     super.dispose();
   }
-
-
-
 
   void _filterData() {
     final query = _searchController.text.toLowerCase();
@@ -126,18 +140,23 @@ class _ProductPageState extends State<ProductPage> {
     });
   }
 
-
   void _onSidebarButtonTapped(int index) {
     setState(() {
       _selectedIndex = index;
     });
 
     switch (index) {
+      case 0:
+        Navigator.of(context).pushNamed('/newOrder');
+        break;
       case 1:
         Navigator.of(context).pushNamed('/dashboard');
         break;
       case 2:
         Navigator.of(context).pushNamed('/product');
+        break;
+      case 3:
+        Navigator.of(context).pushNamed('/transaction');
         break;
       case 4:
         Navigator.of(context).pushNamed('/category');
@@ -145,14 +164,8 @@ class _ProductPageState extends State<ProductPage> {
       case 5:
         Navigator.of(context).pushNamed('/payment');
         break;
-      case 3:
-        Navigator.of(context).pushNamed('/transaction');
-        break;
       case 6:
         Navigator.of(context).pushNamed('/');
-        break;
-      case 0:
-        Navigator.of(context).pushNamed('/newOrder');
         break;
     }
   }
@@ -160,49 +173,52 @@ class _ProductPageState extends State<ProductPage> {
   void _showEditDialog(QueryDocumentSnapshot productDoc) async {
     final product = productDoc.data() as Map<String, dynamic>;
     final productNameController = TextEditingController(text: product['name']);
-    final productPriceController = TextEditingController(text: product['price'].toString());
-    final productCategoryController = TextEditingController(text: product['category']);
+    final productPriceController =
+    TextEditingController(text: product['price'].toString());
+    final productCategoryController =
+    TextEditingController(text: product['category']);
     String? productImageUrl = product['image_url'];
 
-
     File? _image;
-    Uint8List? _webImage; // Untuk gambar di web
+    Uint8List? _webImage;
     final ImagePicker _picker = ImagePicker();
 
     Future<void> _openGallery() async {
       try {
-        // Fungsi hanya untuk Android/iOS
         if (Platform.isAndroid || Platform.isIOS) {
-          final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+          final XFile? pickedFile =
+          await _picker.pickImage(source: ImageSource.gallery);
           if (pickedFile != null) {
             setState(() {
               _image = File(pickedFile.path);
             });
           }
+        } else if (kIsWeb) {
+          final XFile? pickedFile =
+          await _picker.pickImage(source: ImageSource.gallery);
+          if (pickedFile != null) {
+            _webImage = await pickedFile.readAsBytes();
+            setState(() {});
+          }
         } else {
-          // Abaikan platform lain seperti Web
-          print("Platform ini tidak mendukung galeri.");
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text("Galeri hanya didukung di Android/iOS."),
+            content: Text("Gallery only supported on Android/iOS/Web."),
           ));
         }
       } catch (e) {
-        print("Error membuka galeri: $e");
+        print("Error opening gallery: $e");
       }
     }
-
 
     Future<void> _openCamera() async {
       try {
         if (kIsWeb) {
-          // Web does not support direct camera access
-          print("Camera access is not supported on the web.");
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text("Camera access is not supported on the web."),
           ));
         } else {
-          // For mobile (Android/iOS)
-          final XFile? pickedFile = await _picker.pickImage(source: ImageSource.camera);
+          final XFile? pickedFile =
+          await _picker.pickImage(source: ImageSource.camera);
           if (pickedFile != null) {
             setState(() {
               _image = File(pickedFile.path);
@@ -214,28 +230,22 @@ class _ProductPageState extends State<ProductPage> {
       }
     }
 
-
-
-
     Future<String?> _uploadImage(String codeProduct) async {
       try {
-        // Tentukan path untuk menyimpan gambar di Firebase Storage
         final String filePath = "products/$codeProduct.jpg";
-        final Reference storageRef = FirebaseStorage.instance.ref().child(filePath);
+        final Reference storageRef =
+        FirebaseStorage.instance.ref().child(filePath);
 
-        // Jika aplikasi dijalankan di web
         if (kIsWeb && _webImage != null) {
           final UploadTask uploadTask = storageRef.putData(_webImage!);
           final TaskSnapshot taskSnapshot = await uploadTask;
-          return await taskSnapshot.ref.getDownloadURL(); // Ambil URL gambar
-        }
-        // Jika aplikasi dijalankan di mobile (Android/iOS)
-        else if (_image != null) {
+          return await taskSnapshot.ref.getDownloadURL();
+        } else if (_image != null) {
           final UploadTask uploadTask = storageRef.putFile(_image!);
           final TaskSnapshot taskSnapshot = await uploadTask;
-          return await taskSnapshot.ref.getDownloadURL(); // Ambil URL gambar
+          return await taskSnapshot.ref.getDownloadURL();
         } else {
-          throw Exception("No image selected for upload"); // Jika tidak ada gambar yang dipilih
+          throw Exception("No image selected for upload");
         }
       } catch (e) {
         print("Error uploading image: $e");
@@ -243,67 +253,197 @@ class _ProductPageState extends State<ProductPage> {
       }
     }
 
-
-
-
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('Edit Product'),
+          backgroundColor: backgroundColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text('Edit Product',
+              style: TextStyle(
+                  color: primaryColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 24)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  controller: productNameController,
-                  decoration: InputDecoration(labelText: 'Product Name'),
+                // Image preview with rounded corners and shadow
+                Container(
+                  width: 300,
+                  height: 210,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 8,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                    color: Colors.white,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: _image != null
+                      ? Image.file(_image!, fit: BoxFit.cover)
+                      : (productImageUrl != null && productImageUrl.isNotEmpty)
+                      ? Image.network(productImageUrl, fit: BoxFit.cover)
+                      : Center(
+                    child: Text('No Image',
+                        style: TextStyle(
+                            color: primaryColor.withOpacity(0.5),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500)),
+                  ),
                 ),
-                TextField(
-                  controller: productPriceController,
-                  decoration: InputDecoration(labelText: 'Product Price'),
-                  keyboardType: TextInputType.number,
-                ),
-                TextField(
-                  controller: productCategoryController,
-                  decoration: InputDecoration(labelText: 'Product Category'),
-                ),
-                SizedBox(height: 10),
-                _image != null
-                    ? Image.file(_image!, width: 100, height: 100, fit: BoxFit.cover)
-                    : productImageUrl != null && productImageUrl.isNotEmpty
-                    ? Image.network(productImageUrl, width: 100, height: 100, fit: BoxFit.cover)
-                    : Text('No Image Available'),
-                SizedBox(height: 10),
+                const SizedBox(height: 26),
+                // Buttons for image selection with icons and color
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    ElevatedButton(
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: secondaryColor,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        padding:
+                        EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        elevation: 4,
+                      ),
                       onPressed: _openGallery,
-                      child: Text('Gallery'),
+                      icon: Icon(Icons.photo_library, color: Colors.white),
+                      label: Text('Gallery',
+                          style: TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.w600)),
                     ),
-                    ElevatedButton(
+                    const SizedBox(width: 200),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: secondaryColor,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        padding:
+                        EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        elevation: 4,
+                      ),
                       onPressed: _openCamera,
-                      child: Text('Camera'),
+                      icon: Icon(Icons.camera_alt, color: Colors.white),
+                      label: Text('Camera',
+                          style: TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.w600)),
                     ),
                   ],
+                ),
+                const SizedBox(height: 24),
+                // Form fields with filled style and rounded borders
+                TextField(
+                  controller: productNameController,
+                  decoration: InputDecoration(
+                    labelText: 'Product Name',
+                    labelStyle: TextStyle(color: primaryColor),
+                    filled: true,
+                    fillColor: Colors.white,
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: secondaryColor, width: 2),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                      BorderSide(color: primaryColor.withOpacity(0.3)),
+                    ),
+                    contentPadding:
+                    EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                  style: TextStyle(color: primaryColor, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: productPriceController,
+                  decoration: InputDecoration(
+                    labelText: 'Product Price',
+                    labelStyle: TextStyle(color: primaryColor),
+                    filled: true,
+                    fillColor: Colors.white,
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: secondaryColor, width: 2),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                      BorderSide(color: primaryColor.withOpacity(0.3)),
+                    ),
+                    contentPadding:
+                    EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                  keyboardType: TextInputType.number,
+                  style: TextStyle(color: primaryColor, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: productCategoryController,
+                  decoration: InputDecoration(
+                    labelText: 'Product Category',
+                    labelStyle: TextStyle(color: primaryColor),
+                    filled: true,
+                    fillColor: Colors.white,
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: secondaryColor, width: 2),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                      BorderSide(color: primaryColor.withOpacity(0.3)),
+                    ),
+                    contentPadding:
+                    EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                  style: TextStyle(color: primaryColor, fontSize: 16),
                 ),
               ],
             ),
           ),
+          actionsPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 25),
           actions: [
             TextButton(
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.redAccent.withOpacity(0.1),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              onPressed: () {
+                deleteProduct(productDoc.id);
+                Navigator.of(context).pop();
+              },
+              child: Text('Delete',
+                  style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: secondaryColor,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                elevation: 4,
+              ),
               onPressed: () async {
                 try {
                   String? downloadUrl = productImageUrl;
 
-                  // Jika ada gambar baru, upload gambar
                   if (_image != null || _webImage != null) {
                     downloadUrl = await _uploadImage(product['code']);
                   }
 
-                  // Update data produk di Firestore
-                  await FirebaseFirestore.instance.collection('item').doc(productDoc.id).update({
+                  await FirebaseFirestore.instance
+                      .collection('item')
+                      .doc(productDoc.id)
+                      .update({
                     'name': productNameController.text,
                     'price': int.parse(productPriceController.text),
                     'category': productCategoryController.text,
@@ -312,25 +452,23 @@ class _ProductPageState extends State<ProductPage> {
 
                   Navigator.of(context).pop();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Product updated successfully')),
+                    SnackBar(
+                        content: Text('Product updated successfully'),
+                        backgroundColor: secondaryColor),
                   );
                 } catch (error) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed to update product: $error')),
+                    SnackBar(
+                        content: Text('Failed to update product: $error'),
+                        backgroundColor: Colors.redAccent),
                   );
                 }
               },
-              child: Text('Save'),
-            ),
-
-            // Tombol untuk menghapus produk
-            TextButton(
-              onPressed: () {
-                deleteProduct(productDoc.id); // Panggil fungsi deleteProduct
-                Navigator.of(context).pop();
-              },
-              child: Text('Delete'),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: Text('Save',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
             ),
           ],
         );
@@ -339,13 +477,19 @@ class _ProductPageState extends State<ProductPage> {
   }
 
   void deleteProduct(String productId) {
-    FirebaseFirestore.instance.collection('item').doc(productId).delete().then((_) {
+    FirebaseFirestore.instance.collection('item').doc(productId).delete().then(
+          (_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Product deleted successfully'),
+              backgroundColor: secondaryColor),
+        );
+      },
+    ).catchError((error) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Product deleted successfully')),
-      );
-    }).catchError((error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to delete product: $error')),
+        SnackBar(
+            content: Text('Failed to delete product: $error'),
+            backgroundColor: Colors.redAccent),
       );
     });
   }
@@ -355,21 +499,23 @@ class _ProductPageState extends State<ProductPage> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text('Konfirmasi Logout'),
-          content: Text('Apakah Anda yakin ingin keluar?'),
+          backgroundColor: backgroundColor,
+          title: Text('Konfirmasi Logout', style: TextStyle(color: primaryColor)),
+          content:
+          Text('Apakah Anda yakin ingin keluar?', style: TextStyle(color: primaryColor)),
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.of(context).pop(); // Menutup dialog
+                Navigator.of(context).pop();
               },
-              child: Text('Tidak'),
+              child: Text('Tidak', style: TextStyle(color: primaryColor)),
             ),
             TextButton(
               onPressed: () {
-                Navigator.of(context).pop(); // Menutup dialog
-                Navigator.of(context).pushNamed('/'); // Navigasi ke halaman login atau halaman utama
+                Navigator.of(context).pop();
+                Navigator.of(context).pushNamed('/');
               },
-              child: Text('Ya'),
+              child: Text('Ya', style: TextStyle(color: primaryColor)),
             ),
           ],
         );
@@ -377,72 +523,203 @@ class _ProductPageState extends State<ProductPage> {
     );
   }
 
+  Widget _buildSidebarButton({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onPressed,
+  }) {
+    final selectedColor = secondaryColor;
+    final unselectedColor = primaryColor.withOpacity(0.7);
+
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 110,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: selected ? secondaryColor.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: selected
+              ? [
+            BoxShadow(
+              color: secondaryColor.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            )
+          ]
+              : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: selected ? selectedColor : unselectedColor, size: 28),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? selectedColor : unselectedColor,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 13,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _getFormattedDate() {
+    final now = DateTime.now();
+    final formattedDate = DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(now);
+    final formattedTime = DateFormat('HH:mm').format(now);
+    return Text(
+      '$formattedDate - $formattedTime',
+      style: TextStyle(
+        fontSize: 16,
+        color: primaryColor,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+
+  Widget _buildSummaryBox({
+    required String label,
+    required String value,
+    required String subtitle,
+    required Color borderColor,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border(left: BorderSide(color: borderColor, width: 6)),
+          boxShadow: [
+            BoxShadow(
+              color: borderColor.withOpacity(0.15),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: primaryColor.withOpacity(0.7))),
+            const SizedBox(height: 10),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: primaryColor)),
+            const SizedBox(height: 6),
+            Text(subtitle,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    color: primaryColor.withOpacity(0.4))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoundedSearchBar() {
+    return Container(
+      width: 250,
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30), // Rounded corners
+        border: Border.all(color: primaryColor.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.1),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: _searchController,
+        style: TextStyle(color: primaryColor),
+        decoration: InputDecoration(
+          hintText: 'Search Product',
+          hintStyle: TextStyle(color: primaryColor.withOpacity(0.5)),
+          prefixIcon: Icon(Icons.search, color: primaryColor.withOpacity(0.7)),
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.symmetric(vertical: 10),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      resizeToAvoidBottomInset: false,
-      backgroundColor: Colors.grey[200],
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: Text('Product Page', style: TextStyle(color: Colors.grey[700])),
-        backgroundColor: Colors.grey[300],
-        elevation: 0,
-      ),
+      backgroundColor: backgroundColor,
       body: Row(
         children: [
           // Sidebar
           Container(
-            width: 100,
-            color: Colors.grey[100],
+            width: 110,
+            color: backgroundColor,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.shopping_bag,
+                const SizedBox(height: 15),
+                _buildSidebarButton(
+                  icon: Icons.add_shopping_cart_outlined,
                   label: 'New Order',
                   selected: _selectedIndex == 0,
                   onPressed: () => _onSidebarButtonTapped(0),
                 ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.dashboard,
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.show_chart_outlined,
                   label: 'Dashboard',
                   selected: _selectedIndex == 1,
                   onPressed: () => _onSidebarButtonTapped(1),
                 ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.coffee,
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.inventory_2_outlined,
                   label: 'Product',
                   selected: _selectedIndex == 2,
                   onPressed: () => _onSidebarButtonTapped(2),
                 ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.percent,
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.swap_horiz_outlined,
                   label: 'Transaction',
                   selected: _selectedIndex == 3,
                   onPressed: () => _onSidebarButtonTapped(3),
                 ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.category,
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.label_outline,
                   label: 'Category',
                   selected: _selectedIndex == 4,
                   onPressed: () => _onSidebarButtonTapped(4),
                 ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.payment,
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.account_balance_wallet_outlined,
                   label: 'Payment',
                   selected: _selectedIndex == 5,
                   onPressed: () => _onSidebarButtonTapped(5),
                 ),
-
-                SidebarButton(
-                  icon: Icons.logout,
+                const SizedBox(height: 18),
+                _buildSidebarButton(
+                  icon: Icons.exit_to_app,
                   label: 'Logout',
                   selected: _selectedIndex == 6,
                   onPressed: () => _showLogoutDialog(context),
@@ -453,105 +730,158 @@ class _ProductPageState extends State<ProductPage> {
           // Main Content
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  getFormattedDate(), // Date and Time Row
-                  SizedBox(height: 20),
-                  // Summary Boxes
+                  _getFormattedDate(),
+                  const SizedBox(height: 20),
                   Row(
                     children: [
-                      SummaryBox(
-                          label: 'Pendapatan',
-                          value: 'Rp ${NumberFormat('#,##0.00', 'id_ID').format(totalRevenue)}',
-                          subtitle: 'Total Pendapatan'),
-                      SizedBox(width: 20),
-                      SummaryBox(label: 'Jumlah Order',
-                          value: totalOrders.toString(),
-                          subtitle: ' Total Order'),
+                      _buildSummaryBox(
+                        label: 'Pendapatan',
+                        value:
+                        'Rp ${NumberFormat('#,##0.00', 'id_ID').format(totalRevenue)}',
+                        subtitle: 'Total Pendapatan',
+                        borderColor: secondaryColor,
+                      ),
+                      const SizedBox(width: 20),
+                      _buildSummaryBox(
+                        label: 'Jumlah Order',
+                        value: totalOrders.toString(),
+                        subtitle: 'Total Order',
+                        borderColor: primaryColor,
+                      ),
                     ],
                   ),
-                  SizedBox(height: 20),
-
-                  // Ordered Items Table
+                  const SizedBox(height: 20),
                   Expanded(
                     child: Card(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 4,
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Title, Search Bar, and Add Button
+                            // Title, Rounded Search Bar, and Add Button
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
                                   'Product Page',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                      fontSize: 25,
+                                      fontWeight: FontWeight.bold,
+                                      color: primaryColor),
                                 ),
-                                CustomSearchBar(
-                                  controller: _searchController,
-                                  searchLabel: 'Search Product',
-                                ),
-                                IconButton(
-                                  icon: Icon(Icons.add),
-                                  onPressed: () {
-                                    Navigator.of(context).pushNamed('/addProduct');
-                                  },
+                                Row(
+                                  children: [
+                                    _buildRoundedSearchBar(),
+                                    const SizedBox(width: 12),
+                                    IconButton(
+                                      icon: Icon(Icons.add, color: secondaryColor),
+                                      onPressed: () {
+                                        Navigator.of(context)
+                                            .pushNamed('/addProduct');
+                                      },
+                                      tooltip: 'Add Product',
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                            Divider(),
+                            Divider(color: primaryColor.withOpacity(0.3)),
                             Expanded(
                               child: StreamBuilder<QuerySnapshot>(
-                                stream: FirebaseFirestore.instance.collection('item').snapshots(),
+                                stream: FirebaseFirestore.instance
+                                    .collection('item')
+                                    .snapshots(),
                                 builder: (context, snapshot) {
-                                  if (snapshot.connectionState == ConnectionState.waiting) {
-                                    return Center(child: CircularProgressIndicator());
+                                  if (snapshot.connectionState ==
+                                      ConnectionState.waiting) {
+                                    return Center(
+                                        child: CircularProgressIndicator(
+                                            color: primaryColor));
                                   }
-                                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                                    return Center(child: Text('No data available'));
+                                  if (!snapshot.hasData ||
+                                      snapshot.data!.docs.isEmpty) {
+                                    return Center(
+                                        child: Text('No data available',
+                                            style: TextStyle(
+                                                color:
+                                                primaryColor.withOpacity(0.4),
+                                                fontSize: 16)));
                                   }
-                                  if(originalData.isEmpty) {
+                                  if (originalData.isEmpty) {
                                     originalData = snapshot.data!.docs;
                                     filteredData = List.from(originalData);
                                   }
 
-                                  final source = ProductDataTableSource(filteredData, showEditDialog: _showEditDialog);
+                                  final source = ProductDataTableSource(
+                                    filteredData,
+                                    showEditDialog: _showEditDialog,
+                                  );
 
                                   return PaginatedDataTable(
-                                      header: Text('Product Page'),
-                                      rowsPerPage: 2, // Jumlah baris per halaman
-                                      columnSpacing: 80,
-                                      headingRowHeight: 50,
+                                    header: Text('Product List',
+                                        style: TextStyle(
+                                            color: primaryColor,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 25)),
+                                    rowsPerPage: 6,
+                                    columnSpacing: 60,
+                                    headingRowHeight: 56,
+                                    dataRowHeight: 56,
                                     columns: [
                                       DataColumn(
-                                        label: Container(
-                                          width: 150, // Lebar kolom tetap
-                                          child: Center(child: Text('Nama Item')),
+                                        label: SizedBox(
+                                          width: 260,
+                                          child: Center(
+                                            child: Text('Nama Item',
+                                                style: TextStyle(
+                                                    fontSize: 22,
+                                                    color: primaryColor,
+                                                    fontWeight: FontWeight.w600)),
+                                          ),
                                         ),
                                       ),
                                       DataColumn(
-                                        label: Container(
-                                          width: 100, // Lebar kolom tetap
-                                          child: Center(child: Text('Harga')),
+                                        label: SizedBox(
+                                          width: 210,
+                                          child: Center(
+                                            child: Text('Harga',
+                                                style: TextStyle(
+                                                    fontSize: 22,
+                                                    color: primaryColor,
+                                                    fontWeight:
+                                                    FontWeight.w600)),
+                                          ),
                                         ),
                                       ),
                                       DataColumn(
-                                        label: Container(
-                                          width: 100, // Lebar kolom tetap
-                                          child: Center(child: Text('Category')),
+                                        label: SizedBox(
+                                          width: 210,
+                                          child: Center(
+                                            child: Text('Category',
+                                                style: TextStyle(
+                                                    fontSize: 22,
+                                                    color: primaryColor,
+                                                    fontWeight:
+                                                    FontWeight.w600)),
+                                          ),
                                         ),
                                       ),
                                     ],
-                                      source: source,
-
+                                    source: source,
+                                    showCheckboxColumn: false,
+                                    horizontalMargin: 24,
                                   );
                                 },
                               ),
                             ),
-
                           ],
                         ),
                       ),

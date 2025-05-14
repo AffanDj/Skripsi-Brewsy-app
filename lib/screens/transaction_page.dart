@@ -5,509 +5,912 @@ import '../widgets/sidebar_button.dart';
 import '../widgets/summary_box.dart';
 import '../widgets/search_bar.dart'; // Import SearchBar
 import '../widgets/formatted_date.dart';
+import 'dart:developer';
+import 'package:flutter/foundation.dart';
 
-class TransactionPage extends StatefulWidget {
-  @override
-  _TransactionPageState createState() => _TransactionPageState();
+const Color primaryColor = Color(0xFF01479E);
+const Color secondaryColor = Color(0xFFFF6F00);
+const Color backgroundColor = Color(0xFFF5F7FA);
+
+void main() {
+  runApp(const MyApp());
 }
 
-class TransactionDataTableSource extends DataTableSource {
-  final List<QueryDocumentSnapshot> data;
-  final Function(String) showTransactionDetail;
+class Order {
+  final String orderId;
+  final String customerName;
+  final DateTime createdAt;
+  final double amount;
+  final String tableNumber;
+  String status;
 
-  TransactionDataTableSource(this.data, {required this.showTransactionDetail});
+  Order({
+    required this.orderId,
+    required this.customerName,
+    required this.createdAt,
+    required this.amount,
+    required this.tableNumber,
+    required this.status,
+  });
+}
+
+class TransactionDetail {
+  final String productName;
+  final int quantity;
+
+  TransactionDetail({
+    required this.productName,
+    required this.quantity,
+  });
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
-  @override
-  DataRow? getRow(int index) {
-    if (index >= data.length) return null;
-
-    final item = data[index].data() as Map<String, dynamic>;
-
-    return DataRow(cells: [
-      DataCell(Text(item['customerName'] ?? 'Unknown Customer')),
-      DataCell(Text(DateFormat('dd/MM/yyyy').format(item['createdAt']?.toDate() ?? DateTime.now()))),
-      DataCell(Text('Rp ${item['amount'] ?? 0}')),
-      DataCell(Text(item['tableNumber'] ?? 'N/A')),
-      DataCell(Text(item['status'] ?? 'Unknown Status')),
-    ], onSelectChanged: (selected) {
-      if (selected ?? false) {
-        showTransactionDetail(item['orderId']);
-      }
-    });
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Transaction Page',
+      theme: ThemeData(
+        primaryColor: primaryColor,
+        scaffoldBackgroundColor: backgroundColor,
+        fontFamily: 'Inter',
+        colorScheme: ColorScheme.fromSwatch().copyWith(
+          primary: primaryColor,
+          secondary: secondaryColor,
+        ),
+      ),
+      home: const TransactionPage(),
+      debugShowCheckedModeBanner: false,
+      routes: {
+        '/newOrder': (context) => const DummyPage(title: 'New Order Page'),
+        '/dashboard': (context) => const DummyPage(title: 'Dashboard Page'),
+        '/product': (context) => const DummyPage(title: 'Product Page'),
+        '/transaction': (context) => const TransactionPage(),
+        '/category': (context) => const DummyPage(title: 'Category Page'),
+        '/payment': (context) => const DummyPage(title: 'Payment Page'),
+        '/': (context) => const DummyPage(title: 'Home Page'),
+      },
+    );
   }
+}
+
+class DummyPage extends StatelessWidget {
+  final String title;
+  const DummyPage({Key? key, required this.title}) : super(key: key);
 
   @override
-  bool get isRowCountApproximate => false;
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        backgroundColor: primaryColor,
+      ),
+      body: Center(
+        child: Text(
+          title,
+          style: const TextStyle(fontSize: 24),
+        ),
+      ),
+    );
+  }
+}
+
+class TransactionPage extends StatefulWidget {
+  const TransactionPage({super.key});
 
   @override
-  int get rowCount => data.length;
-
-  @override
-  int get selectedRowCount => 0;
+  State<TransactionPage> createState() => _TransactionPageState();
 }
 
 class _TransactionPageState extends State<TransactionPage> {
-  int _selectedIndex = 3;  // Default selected index is 'Transaction'
-  TextEditingController _searchController = TextEditingController(); // Controller for search bar
-  FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  bool _isLoading = false;  // To indicate loading more data
-  DocumentSnapshot? _lastDocument;  // Store the last document for pagination
-  List<QueryDocumentSnapshot> _orders = [];  // List to store the fetched orders
-  List<QueryDocumentSnapshot> _filteredOrders = []; // List for filtered orders
-  double totalRevenue = 0.0;
-  int totalOrders = 0;
+  List<Order> _allOrders = [];
+  Map<String, List<TransactionDetail>> _transactionDetails = {};
+  List<Order> _filteredOrders = [];
   DateTime? _selectedDate;
-  bool _noDataFound = false;
+  final TextEditingController _searchController = TextEditingController();
+  int _selectedSidebarIndex = 3;
+  bool _isLoadingOrders = false;
+  bool _isLoadingDetails = false;
+
+  // Pagination variables
+  static const int _rowsPerPage = 9;
+  int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_filterOrders); // Add listener for search
-    _fetchOrders(); // Fetch initial orders
-    _fetchData();
-  }
-
-
-
-  Future<void> _fetchData() async {
-    // Ambil data dari Firestore dan hitung totalRevenue dan totalOrders
-    QuerySnapshot snapshot = await FirebaseFirestore.instance.collection('transactionDetails').get();
-
-    // Reset total pendapatan dan jumlah order
-    totalRevenue = 0.0;
-    totalOrders = 0;
-
-    for (var doc in snapshot.docs) {
-      var data = doc.data() as Map<String, dynamic>;
-      int quantity = (data['quantity'] as num).toInt(); // Pastikan quantity selalu integer
-      double price = (data['price'] as num).toDouble(); // Pastikan price selalu double
-      double revenue = quantity * price;
-
-      totalOrders += quantity; // Tambahkan jumlah order
-      totalRevenue += revenue; // Tambahkan total pendapatan
-    }
-
-    // Memperbarui state untuk menampilkan nilai baru
-    setState(() {});
+    _fetchOrders();
+    _fetchTransactionDetails();
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
-    _searchController.removeListener(_filterOrders); // Remove listener
+    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     super.dispose();
   }
 
-  // Function to fetch the orders based on search query and pagination
-  Future<void> _fetchOrders({bool isSearch = false}) async {
-    if (_isLoading) return; // Prevent fetching while already loading
+  Future<void> _fetchOrders() async {
     setState(() {
-      _isLoading = true;
+      _isLoadingOrders = true;
     });
-
-    Query query = _firestore.collection('orders').orderBy('createdAt').limit(10);
-
-    // If there's a search query, add a where clause
-    if (_searchController.text.isNotEmpty) {
-      query = query.where('customerName', isGreaterThanOrEqualTo: _searchController.text)
-          .where('customerName', isLessThanOrEqualTo: _searchController.text + '\uf8ff');
-    }
-
-    // Jika ada tanggal yang dipilih, tambahkan filter berdasarkan createdAt
-    if (_selectedDate != null) {
-      DateTime startOfDay = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day);
-      DateTime endOfDay = startOfDay.add(Duration(days: 1)).subtract(Duration(seconds: 1));
-
-      query = query.where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay));
-    }
-
-    // If there's a last document, use it for pagination
-    if (_lastDocument != null && !isSearch) {
-      query = query.startAfterDocument(_lastDocument!);
-    }
-
     try {
-      QuerySnapshot querySnapshot = await query.get();
-      _lastDocument = querySnapshot.docs.isEmpty ? null : querySnapshot.docs.last;
+      QuerySnapshot snapshot =
+      await FirebaseFirestore.instance.collection('orders').get();
+
+      List<Order> orders = snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return Order(
+          orderId: data['orderId'] ?? '',
+          customerName: data['customerName'] ?? 'Unknown',
+          createdAt: (data['createdAt'] as Timestamp).toDate(),
+          amount: (data['amount'] as num).toDouble(),
+          tableNumber: data['tableNumber'] ?? 'N/A',
+          status: data['status'] ?? 'unknown',
+        );
+      }).toList();
 
       setState(() {
-        if (isSearch) {
-          _orders.clear(); // Reset data lama saat pencarian baru
-        }
-        _orders.addAll(querySnapshot.docs);
-        _filteredOrders = List.from(_orders); // Inisialisasi filtered orders
+        _allOrders = orders;
+        _filteredOrders = List.from(_allOrders);
+        _currentPage = 0; // Reset page on new data
       });
-
-      // Jika tidak ada data yang ditemukan, set state kosong
-      if (_filteredOrders.isEmpty) {
-        setState(() {
-          _noDataFound = true;
-        });
-      } else {
-        setState(() {
-          _noDataFound = false;
-        });
-      }
-
     } catch (e) {
-      print('Error fetching orders: $e');
+      debugPrint('Error fetching orders: $e');
     } finally {
       setState(() {
-        _isLoading = false;
+        _isLoadingOrders = false;
       });
     }
+  }
 
+  Future<void> _fetchTransactionDetails() async {
+    setState(() {
+      _isLoadingDetails = true;
+    });
+    try {
+      QuerySnapshot snapshot =
+      await FirebaseFirestore.instance.collection('transactionDetails').get();
+
+      Map<String, List<TransactionDetail>> detailsMap = {};
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final orderId = data['orderId'] ?? '';
+        final productName = data['productName'] ?? '';
+        final quantity = (data['quantity'] as num).toInt();
+
+        if (!detailsMap.containsKey(orderId)) {
+          detailsMap[orderId] = [];
+        }
+        detailsMap[orderId]!.add(TransactionDetail(
+          productName: productName,
+          quantity: quantity,
+        ));
+      }
+
+      setState(() {
+        _transactionDetails = detailsMap;
+      });
+    } catch (e) {
+      debugPrint('Error fetching transaction details: $e');
+    } finally {
+      setState(() {
+        _isLoadingDetails = false;
+      });
+    }
+  }
+
+  void _onSearchChanged() {
+    _filterOrders();
+  }
+
+  void _filterOrders() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      _filteredOrders = _allOrders.where((order) {
+        final nameMatch = order.customerName.toLowerCase().contains(query);
+        final dateMatch = _selectedDate == null ||
+            (order.createdAt.year == _selectedDate!.year &&
+                order.createdAt.month == _selectedDate!.month &&
+                order.createdAt.day == _selectedDate!.day);
+        return (nameMatch || query.isEmpty) && dateMatch;
+      }).toList();
+      _currentPage = 0; // Reset to first page on filter change
+    });
   }
 
   void _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
+    final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate ?? DateTime.now(),
       firstDate: DateTime(2000),
       lastDate: DateTime(2101),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: primaryColor,
+              onPrimary: Colors.white,
+              onSurface: primaryColor,
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(foregroundColor: primaryColor),
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null) {
       setState(() {
         _selectedDate = picked;
       });
-      _fetchOrders(isSearch: true); // Fetch ulang berdasarkan tanggal
+      _filterOrders();
+      log('date: $_selectedDate');
+      debugPrint('date: $_selectedDate');
     }
   }
 
-
-
-
-  void _filterOrders() {
-    final query = _searchController.text.toLowerCase();
-
+  void _clearDate() {
     setState(() {
-      _filteredOrders = _orders.where((doc) {
-        final item = doc.data() as Map<String, dynamic>;
-
-        // Get customer name and order date
-        final customerName = item['customerName']?.toString().toLowerCase() ?? '';
-        final createdAt = item['createdAt']?.toDate(); // Convert Timestamp to DateTime
-
-        // Filter by customer name
-        final matchesName = customerName.contains(query);
-
-        // Check if the query is a valid date
-        DateTime? queryDate;
-        try {
-          queryDate = DateFormat('yyyy-MM-dd').parseStrict(query);
-        } catch (_) {
-          queryDate = null; // Not a valid date
-        }
-
-        // Filter by date if the query is a valid date
-        final matchesDate = queryDate != null &&
-            createdAt != null && // Ensure createdAt is not null
-            createdAt.isAfter(queryDate.subtract(Duration(seconds: 1))) &&
-            createdAt.isBefore(queryDate.add(Duration(days: 1)));
-
-        // Return true if it matches either name or date
-        return matchesName || matchesDate;
-      }).toList();
-
-      // Jika tidak ada data yang cocok dengan filter
-      if (_filteredOrders.isEmpty) {
-        // Tampilkan pesan bahwa tidak ada data yang cocok
-        print('No data found for the selected date or search query.');
-      }
+      _selectedDate = null;
     });
+    _filterOrders();
   }
 
-  void _updateOrderStatus(String orderId, String newStatus) async {
+  Future<void> _updateOrderStatus(String orderId, String newStatus) async {
     try {
-      // Mencari dokumen berdasarkan field 'orderId'
       QuerySnapshot querySnapshot = await FirebaseFirestore.instance
           .collection('orders')
           .where('orderId', isEqualTo: orderId)
           .get();
 
       if (querySnapshot.docs.isNotEmpty) {
-        // Jika dokumen ditemukan, ambil dokumen pertama
         DocumentSnapshot document = querySnapshot.docs.first;
+        await document.reference.update({'status': newStatus});
 
-        // Memperbarui status
-        await document.reference.update({
-          'status': newStatus,
-        });
+        // Update local state
+        final index = _allOrders.indexWhere((order) => order.orderId == orderId);
+        if (index != -1) {
+          setState(() {
+            _allOrders[index].status = newStatus;
+          });
+          _filterOrders();
+        }
 
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Status updated to $newStatus')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Status updated to $newStatus'),
+            backgroundColor: secondaryColor,
+          ),
+        );
       } else {
-        print('No document found with orderId: $orderId');
+        debugPrint('No document found with orderId: $orderId');
       }
     } catch (e) {
-      print('Error updating status: $e');
+      debugPrint('Error updating status: $e');
     }
   }
 
-  void _showLogoutDialog(BuildContext context) {
+  void _showLogoutDialog() {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Konfirmasi Logout'),
-          content: Text('Apakah Anda yakin ingin keluar?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Menutup dialog
-              },
-              child: Text('Tidak'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Menutup dialog
-                Navigator.of(context).pushNamed('/'); // Navigasi ke halaman login atau halaman utama
-              },
-              child: Text('Ya'),
-            ),
-          ],
-        );
-      },
+      builder: (context) => AlertDialog(
+        backgroundColor: backgroundColor,
+        title: Text('Konfirmasi Logout', style: TextStyle(color: primaryColor)),
+        content: Text('Apakah Anda yakin ingin keluar?', style: TextStyle(color: primaryColor)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Tidak', style: TextStyle(color: primaryColor)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).pushReplacementNamed('/');
+            },
+            child: Text('Ya', style: TextStyle(color: primaryColor)),
+          ),
+        ],
+      ),
     );
   }
 
-
-// Function to show transaction details when clicked
-  void _showTransactionDetail(String orderId) async {
-    QuerySnapshot detailSnapshot = await FirebaseFirestore.instance
-        .collection('transactionDetails')
-        .where('orderId', isEqualTo: orderId)
-        .get();
-
-    if (detailSnapshot.docs.isEmpty) {
-      print('No details found for orderId: $orderId');
-    } else {
-      detailSnapshot.docs.forEach((doc) {
-        print('Found document: ${doc.id}, data: ${doc.data()}');
-      });
+  void _onSidebarButtonTapped(int index) {
+    setState(() {
+      _selectedSidebarIndex = index;
+    });
+    switch (index) {
+      case 0:
+        Navigator.of(context).pushReplacementNamed('/newOrder');
+        break;
+      case 1:
+        Navigator.of(context).pushReplacementNamed('/dashboard');
+        break;
+      case 2:
+        Navigator.of(context).pushReplacementNamed('/product');
+        break;
+      case 3:
+      // Already on transaction page, do nothing or refresh
+        break;
+      case 4:
+        Navigator.of(context).pushReplacementNamed('/category');
+        break;
+      case 5:
+        Navigator.of(context).pushReplacementNamed('/payment');
+        break;
+      case 6:
+        _showLogoutDialog();
+        break;
     }
+  }
 
-    List<Map<String, dynamic>> details = detailSnapshot.docs
-        .map((doc) => doc.data() as Map<String, dynamic>)
-        .toList();
+  String _formatDateTime(DateTime dateTime) {
+    final formatter = DateFormat('EEEE, d MMMM yyyy - HH:mm', 'id_ID');
+    return formatter.format(dateTime);
+  }
 
-    String selectedStatus = 'in-progress'; // Default status
+  String _formatCurrency(double amount) {
+    final formatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 2);
+    return formatter.format(amount);
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'on-proggress':
+        return Colors.orange.shade600;
+      case 'delivered':
+        return Colors.green.shade600;
+      case 'canceled':
+        return Colors.red.shade600;
+      default:
+        return Colors.grey.shade600;
+    }
+  }
+
+  Widget _buildStatusText(String status) {
+    return Text(
+      status[0].toUpperCase() + status.substring(1),
+      style: TextStyle(
+        color: _statusColor(status),
+        fontWeight: FontWeight.w600,
+        fontSize: 20,
+      ),
+    );
+  }
+
+  void _showTransactionDetailDialog(Order order) {
+    final details = _transactionDetails[order.orderId] ?? [];
+    String selectedStatus = order.status;
 
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: Text('Transaction Detail'),
-          content: StatefulBuilder(
-            builder: (BuildContext context, StateSetter setState) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        return StatefulBuilder(builder: (context, setStateDialog) {
+          return AlertDialog(
+            backgroundColor: backgroundColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text('Transaction Detail', style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: 450,
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  ...details.map((detail) {
-                    return Text(
-                        'Product: ${detail['productName']}, Qty: ${detail['quantity']}');
-                  }).toList(),
-                  SizedBox(height: 20),
-                  Text('Select Status:'),
-                  DropdownButton<String>(
-                    value: selectedStatus,
-                    onChanged: (String? newValue) {
-                      setState(() {
-                        selectedStatus = newValue!;
-                      });
-                    },
-                    items: <String>['in-progress', 'delivered', 'canceled']
-                        .map<DropdownMenuItem<String>>((String value) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value),
-                      );
-                    }).toList(),
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: details.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final detail = details[index];
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: primaryColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: primaryColor.withOpacity(0.15),
+                                blurRadius: 6,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 0),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      detail.productName,
+                                      style: TextStyle(
+                                        color: primaryColor,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Quantity: ${detail.quantity}',
+                                      style: TextStyle(
+                                        color: primaryColor.withOpacity(0.8),
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Select Status:',
+                      style: TextStyle(
+                        color: primaryColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: primaryColor.withOpacity(0.4)),
+                    ),
+                    child: DropdownButton<String>(
+                      value: selectedStatus,
+                      isExpanded: true,
+                      underline: const SizedBox(),
+                      iconEnabledColor: primaryColor,
+                      dropdownColor: backgroundColor,
+                      items: <String>['on-proggress', 'delivered', 'canceled']
+                          .map((String value) {
+                        return DropdownMenuItem<String>(
+                          value: value,
+                          child: Text(
+                            value[0].toUpperCase() + value.substring(1),
+                            style: TextStyle(color: primaryColor),
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (String? newValue) {
+                        if (newValue != null) {
+                          setStateDialog(() {
+                            selectedStatus = newValue;
+                          });
+                        }
+                      },
+                    ),
                   ),
                 ],
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                _updateOrderStatus(orderId, selectedStatus); // Update status
-                Navigator.pop(context);
-              },
-              child: Text('Update Status'),
+              ),
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Close'),
+            actions: [
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: primaryColor,
+                  padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () {
+                  _updateOrderStatus(order.orderId, selectedStatus);
+                  Navigator.of(context).pop();
+                },
+                child: const Text(
+                  'Update Status',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: primaryColor.withOpacity(0.7),
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text(
+                  'Close',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          );
+        });
+      },
+    );
+  }
+
+  Widget _buildSidebarButton({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onPressed,
+  }) {
+    final selectedColor = secondaryColor;
+    final unselectedColor = primaryColor.withOpacity(0.7);
+
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 110,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: selected ? secondaryColor.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: selected
+              ? [
+            BoxShadow(
+              color: secondaryColor.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            )
+          ]
+              : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: selected ? selectedColor : unselectedColor, size: 28),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? selectedColor : unselectedColor,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 13,
+              ),
+              textAlign: TextAlign.center,
             ),
           ],
-        );
-      },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryBox({
+    required String label,
+    required String value,
+    required String subtitle,
+    required Color borderColor,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border(left: BorderSide(color: borderColor, width: 6)),
+          boxShadow: [
+            BoxShadow(
+              color: borderColor.withOpacity(0.15),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: primaryColor.withOpacity(0.7))),
+            const SizedBox(height: 10),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: primaryColor)),
+            const SizedBox(height: 6),
+            Text(subtitle,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    color: primaryColor.withOpacity(0.4))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Container(
+      width: 250,
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: primaryColor.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: _searchController,
+        style: TextStyle(color: primaryColor),
+        decoration: InputDecoration(
+          hintText: 'Search Transaction',
+          hintStyle: TextStyle(color: primaryColor.withOpacity(0.5)),
+          prefixIcon: Icon(Icons.search, color: primaryColor.withOpacity(0.7)),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransactionTable() {
+    if (_isLoadingOrders) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_filteredOrders.isEmpty) {
+      return Center(
+        child: Text(
+          'No data available',
+          style: TextStyle(color: primaryColor.withOpacity(0.4), fontSize: 16),
+        ),
+      );
+    }
+
+    // Calculate pagination slice
+    final startIndex = _currentPage * _rowsPerPage;
+    final endIndex = (_currentPage + 1) * _rowsPerPage;
+    final pageItems = _filteredOrders.sublist(
+      startIndex,
+      endIndex > _filteredOrders.length ? _filteredOrders.length : endIndex,
+    );
+
+    final totalPages = (_filteredOrders.length / _rowsPerPage).ceil();
+
+    return Column(
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingRowHeight: 56,
+            dataRowHeight: 56,
+            columnSpacing: 40,
+            showCheckboxColumn: false,
+            columns: [
+              DataColumn(
+                label: SizedBox(
+                  width: 200,
+                  child: Center(
+                    child: Text('Nama Customer',
+                        style: TextStyle(
+                            fontSize: 22,
+                            color: primaryColor,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+              DataColumn(
+                label: SizedBox(
+                  width: 180,
+                  child: Center(
+                    child: Text('Tanggal Order',
+                        style: TextStyle(
+                            fontSize: 22,
+                            color: primaryColor,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+              DataColumn(
+                label: SizedBox(
+                  width: 180,
+                  child: Center(
+                    child: Text('Total Harga',
+                        style: TextStyle(
+                            fontSize: 22,
+                            color: primaryColor,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+              DataColumn(
+                label: SizedBox(
+                  width: 180,
+                  child: Center(
+                    child: Text('No Meja',
+                        style: TextStyle(
+                            fontSize: 22,
+                            color: primaryColor,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+              DataColumn(
+                label: SizedBox(
+                  width: 180,
+                  child: Center(
+                    child: Text('Status',
+                        style: TextStyle(
+                            fontSize: 22,
+                            color: primaryColor,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+            ],
+            rows: pageItems.map((order) {
+              return DataRow(
+                cells: [
+                  DataCell(Text(order.customerName,
+                      style: TextStyle(fontSize: 20, color: primaryColor))),
+                  DataCell(Center(
+                      child: Text(
+                          DateFormat('dd/MM/yyyy').format(order.createdAt),
+                          style: TextStyle(
+                              fontSize: 20, color: primaryColor.withOpacity(0.85))))),
+                  DataCell(Center(
+                      child: Text(_formatCurrency(order.amount),
+                          style: TextStyle(
+                              fontSize: 20, color: primaryColor.withOpacity(0.85))))),
+                  DataCell(Center(
+                      child: Text(order.tableNumber,
+                          style: TextStyle(
+                              fontSize: 20, color: primaryColor.withOpacity(0.7))))),
+                  DataCell(Center(child: _buildStatusText(order.status))),
+                ],
+                onSelectChanged: (selected) {
+                  if (selected ?? false) {
+                    _showTransactionDetailDialog(order);
+                  }
+                },
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text(
+              'Page ${_currentPage + 1} of $totalPages',
+              style: TextStyle(color: primaryColor.withOpacity(0.7), fontSize: 14),
+            ),
+            IconButton(
+              icon: Icon(Icons.chevron_left, color: primaryColor),
+              onPressed: _currentPage > 0
+                  ? () {
+                setState(() {
+                  _currentPage--;
+                });
+              }
+                  : null,
+            ),
+            IconButton(
+              icon: Icon(Icons.chevron_right, color: primaryColor),
+              onPressed: _currentPage < totalPages - 1
+                  ? () {
+                setState(() {
+                  _currentPage++;
+                });
+              }
+                  : null,
+            ),
+          ],
+        ),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final formattedDateTime = _formatDateTime(now);
+
+    final totalRevenue = _filteredOrders.fold<double>(
+        0, (previousValue, element) => previousValue + element.amount);
+    final totalOrders = _filteredOrders.length;
+
     return Scaffold(
-      resizeToAvoidBottomInset: false,
-      backgroundColor: Colors.grey[200],
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: Text('Transaction Page', style: TextStyle(color: Colors.grey[700])),
-        backgroundColor: Colors.grey[300],
-        elevation: 0,
-      ),
+      backgroundColor: backgroundColor,
       body: Row(
         children: [
-          // Sidebar
-          Container(
-            width: 100,
-            color: Colors.grey[100],
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SidebarButton(
-                  icon: Icons.shopping_bag,
-                  label: 'New Order',
-                  selected: _selectedIndex == 0,
-                  onPressed: () => _onSidebarButtonTapped(0),
-                ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.dashboard,
-                  label: 'Dashboard',
-                  selected: _selectedIndex == 1,
-                  onPressed: () => _onSidebarButtonTapped(1),
-                ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.coffee,
-                  label: 'Product',
-                  selected: _selectedIndex == 2,
-                  onPressed: () => _onSidebarButtonTapped(2),
-                ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.percent,
-                  label: 'Transaction',
-                  selected: _selectedIndex == 3,
-                  onPressed: () => _onSidebarButtonTapped(3),
-                ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.category,
-                  label: 'Category',
-                  selected: _selectedIndex == 4,
-                  onPressed: () => _onSidebarButtonTapped(4),
-                ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.payment,
-                  label: 'Payment',
-                  selected: _selectedIndex == 5,
-                  onPressed: () => _onSidebarButtonTapped(5),
-                ),
-                SizedBox(height: 15.0),
-                SidebarButton(
-                  icon: Icons.logout,
-                  label: 'Logout',
-                  selected: _selectedIndex == 6,
-                  onPressed: () => _showLogoutDialog(context),
-                ),
-              ],
-            ),
-          ),
-
-
-          // Main Content
+          _buildSidebar(),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  getFormattedDate(),
-                  SizedBox(height: 20),
+                  Text(
+                    formattedDateTime,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: primaryColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                   Row(
                     children: [
-                      SummaryBox(
-                          label: 'Pendapatan',
-                          value: 'Rp ${NumberFormat('#,##0.00', 'id_ID').format(totalRevenue)}',
-                          subtitle: 'Total Pendapatan'),
-                      SizedBox(width: 20),
-                      SummaryBox(label: 'Jumlah Order',
-                          value: totalOrders.toString(),
-                          subtitle: ' Total Order'),
+                      _buildSummaryBox(
+                        label: 'Pendapatan',
+                        value: _formatCurrency(totalRevenue),
+                        subtitle: 'Total Pendapatan',
+                        borderColor: secondaryColor,
+                      ),
+                      const SizedBox(width: 20),
+                      _buildSummaryBox(
+                        label: 'Jumlah Order',
+                        value: totalOrders.toString(),
+                        subtitle: 'Total Order',
+                        borderColor: primaryColor,
+                      ),
                     ],
                   ),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   Expanded(
                     child: Card(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 4,
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Title, Search Bar
+                            // Title, Search Bar and Date Picker
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
                                   'Transaction Page',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                      fontSize: 25,
+                                      fontWeight: FontWeight.bold,
+                                      color: primaryColor),
                                 ),
                                 Row(
                                   children: [
-                                CustomSearchBar(
-                                  controller: _searchController,
-                                  searchLabel: 'Search Transaction',
-                                ),
-                                  IconButton(
-                                      icon: Icon(Icons.calendar_today),
+                                    _buildSearchBar(),
+                                    const SizedBox(width: 12),
+                                    IconButton(
+                                      icon: Icon(Icons.calendar_today,
+                                          color: primaryColor),
                                       onPressed: () => _selectDate(context),
-                                  ),
-                              ],
+                                      tooltip: 'Select Date',
+                                    ),
+                                    if (_selectedDate != null)
+                                      IconButton(
+                                        icon: Icon(Icons.clear,
+                                            color: primaryColor.withOpacity(0.7)),
+                                        onPressed: _clearDate,
+                                        tooltip: 'Clear Date Filter',
+                                      ),
+                                  ],
                                 ),
-                            ],
+                              ],
                             ),
-                            Divider(),
-                            Expanded(
-                              child: StreamBuilder<QuerySnapshot>(
-                                stream: FirebaseFirestore.instance.collection('orders').snapshots(),
-                                builder: (context, snapshot) {
-                                  if (snapshot.connectionState == ConnectionState.waiting) {
-                                    return Center(child: CircularProgressIndicator());
-                                  }
-                                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                                    return Center(child: Text('No data available'));
-                                  }
-                                  if (_orders.isEmpty) {
-                                    _orders = snapshot.data!.docs;
-                                    _filteredOrders = List.from(_orders);
-                                  }
-
-                                  final source = TransactionDataTableSource(_filteredOrders, showTransactionDetail: _showTransactionDetail);
-
-                                  return PaginatedDataTable(
-                                    header: Text('Transaction Page'),
-                                    rowsPerPage: 2, // Jumlah baris per halaman
-                                    columnSpacing: 35,
-                                    headingRowHeight: 50,
-                                    showCheckboxColumn: false,
-                                    columns: [
-                                      DataColumn(label: Text('Nama Customer')),
-                                      DataColumn(label: Text('Tanggal Order')),
-                                      DataColumn(label: Text('Total Harga')),
-                                      DataColumn(label: Text('No Meja')),
-                                      DataColumn(label: Text('Status')), // Menambahkan kolom status
-                                    ],
-                                    source: TransactionDataTableSource(_filteredOrders, showTransactionDetail: _showTransactionDetail),
-                                  );
-                                },
-                              ),
-                            ),
+                            Divider(color: primaryColor.withOpacity(0.3)),
+                            Expanded(child: _buildTransactionTable()),
                           ],
                         ),
                       ),
@@ -522,37 +925,64 @@ class _TransactionPageState extends State<TransactionPage> {
     );
   }
 
-  void _onSidebarButtonTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-
-    if (index == 1) {
-      Navigator.of(context).pushNamed('/dashboard');
-    } // navigasi Dashboard
-
-    if (index == 2) {
-      Navigator.of(context).pushNamed('/product');
-    } // navigasi product
-
-    if (index == 4) {
-      Navigator.of(context).pushNamed('/category');
-    } // navigasi category
-
-    if (index == 5) {
-      Navigator.of(context).pushNamed('/payment');
-    } // navigasi payment
-
-    if (index == 3) {
-      Navigator.of(context).pushNamed('/transaction');
-    } // navigasi transaction
-
-    if (index == 6) {
-      Navigator.of(context).pushNamed('/');
-    }
-
-    if (index == 0) {
-      Navigator.of(context).pushNamed('/newOrder');
-    }
+  Widget _buildSidebar() {
+    return Container(
+      width: 110,
+      color: backgroundColor,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 15),
+          _buildSidebarButton(
+            icon: Icons.add_shopping_cart_outlined,
+            label: 'New Order',
+            selected: _selectedSidebarIndex == 0,
+            onPressed: () => _onSidebarButtonTapped(0),
+          ),
+          const SizedBox(height: 18),
+          _buildSidebarButton(
+            icon: Icons.show_chart_outlined,
+            label: 'Dashboard',
+            selected: _selectedSidebarIndex == 1,
+            onPressed: () => _onSidebarButtonTapped(1),
+          ),
+          const SizedBox(height: 18),
+          _buildSidebarButton(
+            icon: Icons.inventory_2_outlined,
+            label: 'Product',
+            selected: _selectedSidebarIndex == 2,
+            onPressed: () => _onSidebarButtonTapped(2),
+          ),
+          const SizedBox(height: 18),
+          _buildSidebarButton(
+            icon: Icons.swap_horiz_outlined,
+            label: 'Transaction',
+            selected: _selectedSidebarIndex == 3,
+            onPressed: () => _onSidebarButtonTapped(3),
+          ),
+          const SizedBox(height: 18),
+          _buildSidebarButton(
+            icon: Icons.label_outline,
+            label: 'Category',
+            selected: _selectedSidebarIndex == 4,
+            onPressed: () => _onSidebarButtonTapped(4),
+          ),
+          const SizedBox(height: 18),
+          _buildSidebarButton(
+            icon: Icons.account_balance_wallet_outlined,
+            label: 'Payment',
+            selected: _selectedSidebarIndex == 5,
+            onPressed: () => _onSidebarButtonTapped(5),
+          ),
+          const SizedBox(height: 18),
+          _buildSidebarButton(
+            icon: Icons.exit_to_app,
+            label: 'Logout',
+            selected: _selectedSidebarIndex == 6,
+            onPressed: () => _onSidebarButtonTapped(6),
+          ),
+        ],
+      ),
+    );
   }
 }

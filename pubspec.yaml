@@ -41,6 +41,7 @@ dependencies:
   http: ^1.2.2
   url_launcher: ^6.0.10
   webview_flutter: ^4.0.0
+  flutter_secure_storage: ^9.0.0
   csv: ^5.0.2
   path_provider: ^2.1.1
   flutter_email_sender: ^5.0.2

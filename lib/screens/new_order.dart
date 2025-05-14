@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
+const Color secondaryColor = Color(0xFFFF6F00); // Orange
+const Color primaryColor = Color(0xFF01479E); // Dark Blue
+const Color backgroundColor = Color(0xFFF5F7FA); // Light background
 
 class NewOrderPage extends StatefulWidget {
   @override
@@ -11,21 +14,60 @@ class NewOrderPage extends StatefulWidget {
 }
 
 class _NewOrderPageState extends State<NewOrderPage> {
-  String _selectedCategory = 'Drinks'; // Kategori default
-  Map<String, int> cart = {}; // Keranjang belanja
-  bool isPaymentPage = false;
-  String paymentUrl = '';
+  String _selectedCategory = 'Drinks'; // Default category
+  Map<String, int> cart = {}; // Shopping cart
   TextEditingController searchController = TextEditingController();
 
-  // Fungsi untuk memulai pembayaran
+  // Simpan data transaksi ke Firestore
+  Future<void> _saveTransactionToFirestore({
+    required String orderId,
+    required int amount,
+    required String customerName,
+    required String email,
+    required String phone,
+    required String tableNumber,
+    required List<Map<String, dynamic>> items,
+    required String status,
+  }) async {
+    final ordersCollection = FirebaseFirestore.instance.collection('orders');
+    final detailsCollection = FirebaseFirestore.instance.collection('transactionDetails');
+
+    // Simpan data order utama
+    await ordersCollection.doc(orderId).set({
+      'orderId': orderId,
+      'amount': amount,
+      'customerName': customerName,
+      'email': email,
+      'phone': phone,
+      'tableNumber': tableNumber,
+      'status': status,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    // Simpan detail transaksi (items)
+    for (var item in items) {
+      await detailsCollection.add({
+        'orderId': orderId,
+        'productName': item['name'],
+        'quantity': item['quantity'],
+        'price': item['price'],
+        'code': item['code'],
+      });
+    }
+  }
+
+  // Initiate payment function
   Future<void> initiatePayment(
-      Map<String, int> cart, String name, String email, String phone, String tableNumber) async {
+      Map<String, int> cart,
+      String name,
+      String email,
+      String phone,
+      String tableNumber,
+      String paymentMethod) async {
     try {
-      // URL API
       final url = Uri.parse(
           'https://us-central1-brewsypos.cloudfunctions.net/createTransaction');
 
-      // Ambil data produk dari Firestore
       QuerySnapshot snapshot =
       await FirebaseFirestore.instance.collection('item').get();
       List<Map<String, dynamic>> allProducts = snapshot.docs.map((doc) {
@@ -36,12 +78,10 @@ class _NewOrderPageState extends State<NewOrderPage> {
         };
       }).toList();
 
-      // Validasi jika `cart` kosong
       if (cart.isEmpty) {
         throw Exception('Keranjang kosong! Tidak ada item untuk diproses.');
       }
 
-      // Buat daftar item dan hitung total harga
       List<Map<String, dynamic>> items = [];
       int totalAmount = 0;
 
@@ -50,74 +90,105 @@ class _NewOrderPageState extends State<NewOrderPage> {
               (p) => p['name'] == productName,
           orElse: () => {
             'name': productName,
-            'price': 0, // Default harga jika produk tidak ditemukan
+            'price': 0,
+            'code': '',
           },
         );
-        // Tambahkan item ke daftar
         items.add({
           'name': product['name'],
           'quantity': quantity,
           'price': product['price'],
-          'code' : product['code']
+          'code': product['code'],
         });
-
-        // Hitung total harga
         totalAmount += (product['price'] as int) * quantity;
       });
 
-      // Kirim request ke API
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'orderId': 'order_${DateTime.now().millisecondsSinceEpoch}', // ID pesanan unik
-          'amount': totalAmount,
-          'customerName': name, // Nama pelanggan
-          'email': email, // Email pelanggan
-          'phone': phone, // Nomor telepon
-          'tableNumber': tableNumber, // Nomor meja
-          'items': items, // Data item
-        }),
+      final orderId = 'order_${DateTime.now().millisecondsSinceEpoch}';
+
+      // Simpan data transaksi ke Firestore dengan status sesuai paymentMethod
+      await _saveTransactionToFirestore(
+        orderId: orderId,
+        amount: totalAmount,
+        customerName: name,
+        email: email,
+        phone: phone,
+        tableNumber: tableNumber,
+        items: items,
+        status: paymentMethod == 'Cash' ? 'paid' : 'pending',
       );
 
-      // Cek status respons dari server
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        String paymentUrl = data['redirect_url']; // URL untuk redirect ke pembayaran
-        if (await canLaunch(paymentUrl)) {
-          await launch(paymentUrl); // Buka URL pembayaran di browser
+      if (paymentMethod == 'Virtual') {
+        // Jika metode Virtual, lanjutkan ke payment gateway
+        final response = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'orderId': orderId,
+            'amount': totalAmount,
+            'customerName': name,
+            'email': email,
+            'phone': phone,
+            'tableNumber': tableNumber,
+            'items': items,
+          }),
+        );
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          String paymentUrl = data['redirect_url'];
+          if (await canLaunch(paymentUrl)) {
+            await launch(paymentUrl);
+          } else {
+            print('Failed to open payment URL');
+          }
         } else {
-          print('Gagal membuka URL pembayaran');
+          print('Failed to initiate payment: ${response.body}');
         }
-        Navigator.pop(context);
       } else {
-        // Error dari server
-        print('Gagal memulai pembayaran: ${response.body}');
+        // Jika Cash, tampilkan pesan sukses
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Payment completed with Cash!'),
+          backgroundColor: secondaryColor,
+        ));
+        showDialog(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              backgroundColor: backgroundColor,
+              title: Text('Payment Success', style: TextStyle(color: primaryColor)),
+              content: Text('Your payment has been completed successfully.', style: TextStyle(color: primaryColor)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('OK', style: TextStyle(color: primaryColor)),
+                ),
+              ],
+            );
+          },
+        );
       }
+
+      Navigator.pop(context); // Tutup dialog input customer
     } catch (e) {
-      // Tangani error secara global
-      print('Error terjadi: $e');
+      print('Error: $e');
     }
   }
 
-  // Fungsi untuk memunculkan pop-up input data pelanggan
   void _showCustomerInputDialog() {
     final TextEditingController nameController = TextEditingController();
     final TextEditingController emailController = TextEditingController();
     final TextEditingController phoneController = TextEditingController();
     final TextEditingController tableController = TextEditingController();
 
-    String paymentMethod = 'Cash'; // Default payment method is 'Cash'
+    String paymentMethod = 'Cash';
 
-    // Function to validate email
     bool validateEmail(String email) {
       final emailRegex = RegExp(r'^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$');
       return emailRegex.hasMatch(email);
     }
 
-    // Function to validate phone number
     bool validatePhone(String phone) {
-      final phoneRegex = RegExp(r'^[0-9]{10,15}$');  // Phone number with 10 to 15 digits
+      final phoneRegex = RegExp(r'^[0-9]{10,15}$');
       return phoneRegex.hasMatch(phone);
     }
 
@@ -125,7 +196,8 @@ class _NewOrderPageState extends State<NewOrderPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('Customer Information'),
+          backgroundColor: backgroundColor,
+          title: Text('Customer Information', style: TextStyle(color: primaryColor)),
           content: SingleChildScrollView(
             child: StatefulBuilder(
               builder: (BuildContext context, StateSetter setState) {
@@ -134,24 +206,52 @@ class _NewOrderPageState extends State<NewOrderPage> {
                   children: [
                     TextField(
                       controller: nameController,
-                      decoration: InputDecoration(labelText: 'Name'),
+                      decoration: InputDecoration(
+                        labelText: 'Name',
+                        labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: secondaryColor),
+                        ),
+                      ),
+                      style: TextStyle(color: primaryColor),
                     ),
                     TextField(
                       controller: emailController,
-                      decoration: InputDecoration(labelText: 'Email'),
+                      decoration: InputDecoration(
+                        labelText: 'Email',
+                        labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: secondaryColor),
+                        ),
+                      ),
                       keyboardType: TextInputType.emailAddress,
+                      style: TextStyle(color: primaryColor),
                     ),
                     TextField(
                       controller: phoneController,
-                      decoration: InputDecoration(labelText: 'Phone Number'),
+                      decoration: InputDecoration(
+                        labelText: 'Phone Number',
+                        labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: secondaryColor),
+                        ),
+                      ),
                       keyboardType: TextInputType.phone,
+                      style: TextStyle(color: primaryColor),
                     ),
                     TextField(
                       controller: tableController,
-                      decoration: InputDecoration(labelText: 'Table Number'),
+                      decoration: InputDecoration(
+                        labelText: 'Table Number',
+                        labelStyle: TextStyle(color: primaryColor.withOpacity(0.7)),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: secondaryColor),
+                        ),
+                      ),
                       keyboardType: TextInputType.number,
+                      style: TextStyle(color: primaryColor),
                     ),
-                    // Dropdown for payment method selection
+                    const SizedBox(height: 12),
                     DropdownButton<String>(
                       value: paymentMethod,
                       onChanged: (String? newValue) {
@@ -163,9 +263,10 @@ class _NewOrderPageState extends State<NewOrderPage> {
                           .map<DropdownMenuItem<String>>((String value) {
                         return DropdownMenuItem<String>(
                           value: value,
-                          child: Text(value),
+                          child: Text(value, style: TextStyle(color: primaryColor)),
                         );
                       }).toList(),
+                      dropdownColor: backgroundColor,
                     ),
                   ],
                 );
@@ -174,77 +275,48 @@ class _NewOrderPageState extends State<NewOrderPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Close the dialog
-              },
-              child: Text('Cancel'),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Cancel', style: TextStyle(color: primaryColor)),
             ),
             ElevatedButton(
               onPressed: () {
-                // Check if all fields are filled and valid
                 if (nameController.text.isNotEmpty &&
                     emailController.text.isNotEmpty &&
                     phoneController.text.isNotEmpty &&
                     tableController.text.isNotEmpty) {
                   if (validateEmail(emailController.text) &&
                       validatePhone(phoneController.text)) {
-                    Navigator.of(context).pop(); // Close the dialog
-                    // Call the payment function with customer data
-                    if (paymentMethod == 'Virtual') {
-                      initiatePayment(
-                        cart, // Your cart data
-                        nameController.text, // Customer name
-                        emailController.text, // Customer email
-                        phoneController.text, // Customer phone
-                        tableController.text, // Customer table number
-                      );
-                    } else {
-                      // If Cash, show success message
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text('Payment completed with Cash!'),
-                      ));
-                      // Optionally, you can show a dialog for success
-                      showDialog(
-                        context: context,
-                        builder: (context) {
-                          return AlertDialog(
-                            title: Text('Payment Success'),
-                            content: Text('Your payment has been completed successfully.'),
-                            actions: [
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.of(context).pop(); // Close the dialog
-                                },
-                                child: Text('OK'),
-                              ),
-                            ],
-                          );
-                        },
-                      );
-                    }
+                    Navigator.of(context).pop();
+
+                    initiatePayment(
+                      cart, // Your cart data
+                      nameController.text, // Customer name
+                      emailController.text, // Customer email
+                      phoneController.text, // Customer phone
+                      tableController.text, // Customer table number
+                      paymentMethod, // Pass payment method here
+                    );
                   } else {
-                    // Show error message if email or phone is invalid
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                       content: Text('Please enter valid email and phone number!'),
+                      backgroundColor: Colors.redAccent,
                     ));
                   }
                 } else {
-                  // Show error message if any field is empty
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content: Text('Please fill all the fields!'),
+                    backgroundColor: Colors.redAccent,
                   ));
                 }
               },
-              child: Text('Submit'),
+              style: ElevatedButton.styleFrom(backgroundColor: secondaryColor),
+              child: Text('Submit', style: TextStyle(color: Colors.white)),
             )
-
           ],
         );
       },
     );
   }
-
-
 
   void _addToCart(String productName) {
     setState(() {
@@ -268,7 +340,6 @@ class _NewOrderPageState extends State<NewOrderPage> {
 
   int _calculateTotal(List<Map<String, dynamic>> allProducts) {
     int total = 0;
-
     cart.forEach((productName, quantity) {
       var product = allProducts.firstWhere(
             (product) => product['name'] == productName,
@@ -276,285 +347,325 @@ class _NewOrderPageState extends State<NewOrderPage> {
       );
       total += (product['price'] as int) * quantity;
     });
-
     return total;
+  }
+
+  Future<bool> _onWillPop() async {
+    Navigator.of(context).pushReplacementNamed('/dashboard');
+    return false;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[200],
-      appBar: AppBar(
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.grey[700]),
-          onPressed: () {
-            Navigator.pop(context); // Kembali ke halaman sebelumnya
-          },
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        backgroundColor: backgroundColor,
+        appBar: AppBar(
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back, color: primaryColor),
+            onPressed: () {
+              Navigator.of(context).pushReplacementNamed('/dashboard');
+            },
+          ),
+          title: Text('New Order', style: TextStyle(color: primaryColor)),
+          backgroundColor: backgroundColor,
+          elevation: 0,
         ),
-        title: Text('New Order', style: TextStyle(color: Colors.grey[700])),
-        backgroundColor: Colors.grey[300],
-        elevation: 0,
-      ),
-      body: Row(
-        children: [
-          // Sidebar
-          Container(
-            width: 100,
-            color: Colors.grey[100],
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('category').snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(child: CircularProgressIndicator());
-                }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return Center(child: Text('No Categories'));
-                }
-
-                List<QueryDocumentSnapshot> categories = snapshot.data!.docs;
-
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    SizedBox(height: 20),
-                    ...categories.map((category) {
-                      String categoryName = category['categoryName'];
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedCategory = categoryName;
-                          });
-                        },
-                        child: Container(
-                          padding: EdgeInsets.all(10.0),
-                          margin: EdgeInsets.only(bottom: 10.0),
-                          decoration: BoxDecoration(
-                            color: _selectedCategory == categoryName ? Colors.blue : Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Center(
-                            child: Text(
-                              categoryName,
-                              style: TextStyle(
-                                color: _selectedCategory == categoryName ? Colors.white : Colors.grey,
+        body: Row(
+          children: [
+            // Sidebar with categories
+            Container(
+              width: 100,
+              color: backgroundColor,
+              child: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('category').snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return Center(child: CircularProgressIndicator(color: primaryColor));
+                  }
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return Center(child: Text('No Categories', style: TextStyle(color: primaryColor.withOpacity(0.7))));
+                  }
+                  List<QueryDocumentSnapshot> categories = snapshot.data!.docs;
+                  return Column(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: [
+                      SizedBox(height: 20),
+                      ...categories.map((category) {
+                        String categoryName = category['categoryName'];
+                        bool selected = _selectedCategory == categoryName;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedCategory = categoryName;
+                            });
+                          },
+                          child: Container(
+                            padding: EdgeInsets.all(10.0),
+                            margin: EdgeInsets.only(bottom: 10.0),
+                            decoration: BoxDecoration(
+                              color: selected ? secondaryColor : Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: selected
+                                  ? [
+                                BoxShadow(
+                                  color: secondaryColor.withOpacity(0.3),
+                                  blurRadius: 6,
+                                  offset: Offset(0, 3),
+                                )
+                              ]
+                                  : null,
+                            ),
+                            child: Center(
+                              child: Text(
+                                categoryName,
+                                style: TextStyle(
+                                  color: selected ? Colors.white : primaryColor.withOpacity(0.7),
+                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                                ),
+                                textAlign: TextAlign.center,
                               ),
-                              textAlign: TextAlign.center,
                             ),
                           ),
-                        ),
-                      );
-                    }).toList(),
-                  ],
-                );
-              },
+                        );
+                      }).toList(),
+                    ],
+                  );
+                },
+              ),
             ),
-          ),
 
-          // Main Content (Product List)
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                children: [
-                  // Search Bar
-                  TextField(
-                    controller: searchController,
-                    onChanged: (value) {
-                      setState(() {}); // Memperbarui UI saat teks berubah
-                    },
-                    decoration: InputDecoration(
-                      hintText: 'Cari Produk',
-                      prefixIcon: Icon(Icons.search),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10.0),
+            // Main content: Search and product grid
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  children: [
+                    // Rounded Search Bar
+                    Container(
+                      width: 350,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(color: primaryColor.withOpacity(0.3)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: primaryColor.withOpacity(0.1),
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: TextField(
+                        controller: searchController,
+                        onChanged: (value) => setState(() {}),
+                        style: TextStyle(color: primaryColor),
+                        decoration: InputDecoration(
+                          hintText: 'Search Product',
+                          hintStyle: TextStyle(color: primaryColor.withOpacity(0.5)),
+                          prefixIcon: Icon(Icons.search, color: primaryColor.withOpacity(0.7)),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(vertical: 12),
+                        ),
                       ),
                     ),
-                  ),
+                    SizedBox(height: 20),
+                    // Product grid
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('item')
+                            .where('category', isEqualTo: _selectedCategory)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return Center(child: CircularProgressIndicator(color: primaryColor));
+                          }
+                          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                            return Center(child: Text('No Products', style: TextStyle(color: primaryColor.withOpacity(0.7))));
+                          }
+                          List<Map<String, dynamic>> filteredProducts = snapshot.data!.docs
+                              .map((doc) => {
+                            'name': doc['name'],
+                            'price': doc['price'],
+                            'image_url': doc['image_url'] ?? '',
+                          })
+                              .where((product) => product['name']
+                              .toLowerCase()
+                              .contains(searchController.text.toLowerCase()))
+                              .toList();
 
-                  SizedBox(height: 20),
-                  // Product Grid
-                  Expanded(
-                    child: StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection('item')
-                          .where('category', isEqualTo: _selectedCategory)
-                          .snapshots(),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return Center(child: CircularProgressIndicator());
-                        }
-                        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                          return Center(child: Text('No Products'));
-                        }
-
-                        // Filter produk sesuai dengan teks pencarian
-                        List<Map<String, dynamic>> filteredProducts = snapshot.data!.docs
-                            .map((doc) => {
-                          'name': doc['name'],
-                          'price': doc['price'],
-                          'image_url': doc['image_url'] ?? '',
-                        })
-                            .where((product) =>
-                            product['name']
-                                .toLowerCase()
-                                .contains(searchController.text.toLowerCase()))
-                            .toList();
-
-                        return GridView.builder(
-                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: 20,
-                            crossAxisSpacing: 20,
-                            childAspectRatio: 3 / 4,
-                          ),
-                          itemCount: filteredProducts.length,
-                          itemBuilder: (context, index) {
-                            return GestureDetector(
-                              onTap: () {
-                                _addToCart(filteredProducts[index]['name']);
-                              },
-                              child: Card(
-                                elevation: 2,
-                                child: Column(
-                                  children: [
-                                    Expanded(
-                                      child: filteredProducts[index]['image_url'] != null && filteredProducts[index]['image_url'].isNotEmpty
-                                          ? Image.network(
-                                        filteredProducts[index]['image_url'],
-                                        fit: BoxFit.cover, // Sesuaikan ukuran foto dengan ukuran container
-                                        loadingBuilder: (context, child, loadingProgress) {
-                                          if (loadingProgress == null) return child;
-                                          return Center(child: CircularProgressIndicator());
-                                        },
-                                        errorBuilder: (context, error, stackTrace) {
-                                          return Icon(Icons.broken_image, size: 120, color: Colors.grey);
-                                        },
-                                      )
-                                          : Icon(Icons.image, size: 80, color: Colors.grey),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.all(10.0),
-                                      child: Column(
-                                        children: [
-                                          Text(
-                                            filteredProducts[index]['name'],
-                                            style: TextStyle(fontWeight: FontWeight.bold),
+                          return GridView.builder(
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              mainAxisSpacing: 20,
+                              crossAxisSpacing: 20,
+                              childAspectRatio: 3 / 4,
+                            ),
+                            itemCount: filteredProducts.length,
+                            itemBuilder: (context, index) {
+                              return GestureDetector(
+                                onTap: () {
+                                  _addToCart(filteredProducts[index]['name']);
+                                },
+                                child: Card(
+                                  elevation: 2,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Expanded(
+                                        child: filteredProducts[index]['image_url'] != null &&
+                                            filteredProducts[index]['image_url'].isNotEmpty
+                                            ? ClipRRect(
+                                          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                                          child: Image.network(
+                                            filteredProducts[index]['image_url'],
+                                            fit: BoxFit.cover,
+                                            width: double.infinity,
+                                            loadingBuilder: (context, child, loadingProgress) {
+                                              if (loadingProgress == null) return child;
+                                              return Center(child: CircularProgressIndicator());
+                                            },
+                                            errorBuilder: (context, error, stackTrace) {
+                                              return Icon(Icons.broken_image, size: 120, color: Colors.grey);
+                                            },
                                           ),
-                                          SizedBox(height: 5),
-                                          Text('Rp ${filteredProducts[index]['price']}'),
-                                        ],
+                                        )
+                                            : Container(
+                                          height: 120,
+                                          alignment: Alignment.center,
+                                          child: Icon(Icons.image, size: 80, color: Colors.grey),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      Padding(
+                                        padding: const EdgeInsets.all(10.0),
+                                        child: Column(
+                                          children: [
+                                            Text(
+                                              filteredProducts[index]['name'],
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: primaryColor,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            SizedBox(height: 5),
+                                            Text(
+                                              'Rp ${filteredProducts[index]['price']}',
+                                              style: TextStyle(color: primaryColor.withOpacity(0.8)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Order Summary
-          Container(
-            width: 250,
-            color: Colors.white,
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Text(
-                      'New Order',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  Divider(),
-                  // Cart Items
-                  Container(
-                    height: MediaQuery.of(context).size.height * 0.4,
-                    child: ListView.builder(
-                      itemCount: cart.length,
-                      itemBuilder: (context, index) {
-                        String productName = cart.keys.elementAt(index);
-                        int quantity = cart[productName]!;
-                        return ListTile(
-                          title: Text(productName),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(Icons.remove),
-                                onPressed: () => _removeFromCart(productName),
-                              ),
-                              Text(quantity.toString()),
-                              IconButton(
-                                icon: Icon(Icons.add),
-                                onPressed: () => _addToCart(productName),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-
-                  Divider(),
-                  // Total Price
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Total:',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                        StreamBuilder<QuerySnapshot>(
-                          stream: FirebaseFirestore.instance.collection('item').snapshots(),
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState == ConnectionState.waiting || !snapshot.hasData) {
-                              return Text('Rp 0');
-                            }
-
-                            List<Map<String, dynamic>> allProducts = snapshot.data!.docs.map((doc) {
-                              return {
-                                'name': doc['name'] ?? '',
-                                'price': doc['price'] ?? 0,
-                              };
-                            }).toList();
-
-                            return Text('Rp ${_calculateTotal(allProducts)}');
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Pay Button
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: ElevatedButton(
-                      onPressed: () {
-                        // Memanggil fungsi pembayaran dengan parameter yang benar
-                        _showCustomerInputDialog();  // Menampilkan input dialog pelanggan
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        padding: EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                              );
+                            },
+                          );
+                        },
                       ),
-                      child: Text('Pay'),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+
+            // Order summary panel
+            Container(
+              width: 280,
+              color: Colors.white,
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Text(
+                        'New Order',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: primaryColor),
+                      ),
+                    ),
+                    Divider(),
+                    Container(
+                      height: MediaQuery.of(context).size.height * 0.45,
+                      child: ListView.builder(
+                        itemCount: cart.length,
+                        itemBuilder: (context, index) {
+                          String productName = cart.keys.elementAt(index);
+                          int quantity = cart[productName]!;
+                          return ListTile(
+                            title: Text(productName, style: TextStyle(color: primaryColor)),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: Icon(Icons.remove, color: secondaryColor),
+                                  onPressed: () => _removeFromCart(productName),
+                                ),
+                                Text(quantity.toString(), style: TextStyle(color: primaryColor)),
+                                IconButton(
+                                  icon: Icon(Icons.add, color: secondaryColor),
+                                  onPressed: () => _addToCart(productName),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    Divider(),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Total:',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor),
+                          ),
+                          StreamBuilder<QuerySnapshot>(
+                            stream: FirebaseFirestore.instance.collection('item').snapshots(),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState == ConnectionState.waiting || !snapshot.hasData) {
+                                return Text('Rp 0', style: TextStyle(color: primaryColor));
+                              }
+                              List<Map<String, dynamic>> allProducts = snapshot.data!.docs.map((doc) {
+                                return {
+                                  'name': doc['name'] ?? '',
+                                  'price': doc['price'] ?? 0,
+                                };
+                              }).toList();
+                              return Text('Rp ${_calculateTotal(allProducts)}', style: TextStyle(color: primaryColor));
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: ElevatedButton(
+                        onPressed: () {
+                          _showCustomerInputDialog();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: secondaryColor,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                        ),
+                        child: Text('Pay', style: TextStyle(color: Colors.white, fontSize: 16)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

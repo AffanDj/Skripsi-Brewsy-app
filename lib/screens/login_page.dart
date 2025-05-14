@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dashboard_page.dart';
 import 'register_page.dart';
+
+const Color primaryColor = Color(0xFF01479E);
+const Color secondaryColor = Color(0xFFFF6F00);
+const Color backgroundColor = Color(0xFFF5F7FA);
 
 class LoginPageScreen extends StatefulWidget {
   @override
@@ -13,221 +17,214 @@ class _LoginPageScreenState extends State<LoginPageScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FlutterSecureStorage storage = FlutterSecureStorage();
 
-  // Fungsi untuk login pengguna
+  bool _rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkRememberedUser();
+  }
+
+  Future<void> _checkRememberedUser() async {
+    String? email = await storage.read(key: 'email');
+    String? password = await storage.read(key: 'password');
+
+    if (email != null && password != null) {
+      setState(() {
+        _emailController.text = email;
+        _passwordController.text = password;
+        _rememberMe = true;
+      });
+    }
+  }
+
   void _loginUser() async {
     String email = _emailController.text.trim();
     String password = _passwordController.text.trim();
 
-    // Validasi email
-    if (email.isEmpty || !RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(email)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Email tidak valid.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return; // Hentikan eksekusi jika email tidak valid
-    }
-
-    // Validasi password
-    if (password.isEmpty || password.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Password harus memiliki minimal 6 karakter.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return; // Hentikan eksekusi jika password tidak valid
+    if (email.isEmpty || password.isEmpty) {
+      _showMessage('Email dan password tidak boleh kosong.');
+      return;
     }
 
     try {
-      // Login pengguna menggunakan Firebase Authentication
       UserCredential userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      // Ambil pengguna yang sedang login
       User? user = userCredential.user;
 
-      if (user != null) {
-        if (user.emailVerified) {
-          // Email sudah diverifikasi, arahkan ke DashboardPage
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => DashboardPage()),
-          );
+      if (user != null && user.emailVerified) {
+        if (_rememberMe) {
+          await storage.write(key: 'email', value: email);
+          await storage.write(key: 'password', value: password);
         } else {
-          // Email belum diverifikasi
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Email Anda belum diverifikasi. Silakan cek email Anda untuk memverifikasi.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+          await storage.deleteAll();
+        }
 
-          // Logout pengguna untuk mencegah akses
-          await _auth.signOut();
-        }
-      }
-    } catch (e) {
-      String errorMessage;
-      // Menangani kesalahan spesifik dari Firebase Authentication
-      if (e is FirebaseAuthException) {
-        switch (e.code) {
-          case 'user-not-found':
-            errorMessage = 'Pengguna tidak ditemukan.';
-            break;
-          case 'wrong-password':
-            errorMessage = 'Password salah.';
-            break;
-          case 'invalid-email':
-            errorMessage = 'Email tidak valid.';
-            break;
-          default:
-            errorMessage = 'Login gagal: ${e.message}';
-        }
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => DashboardPage()),
+        );
       } else {
-        errorMessage = 'Terjadi kesalahan. Silakan coba lagi.';
+        _showMessage(
+          'Email belum diverifikasi. Silakan periksa email Anda.',
+          color: secondaryColor,
+        );
+        await _auth.signOut();
       }
-
-      // Tampilkan pesan error melalui SnackBar
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMessage),
-          backgroundColor: Colors.red,
-        ),
-      );
+    } on FirebaseAuthException catch (e) {
+      String errorMessage;
+      switch (e.code) {
+        case 'user-not-found':
+          errorMessage = 'Pengguna tidak ditemukan.';
+          break;
+        case 'wrong-password':
+          errorMessage = 'Password salah.';
+          break;
+        case 'invalid-email':
+          errorMessage = 'Format email tidak valid.';
+          break;
+        default:
+          errorMessage = 'Login gagal: ${e.message}';
+      }
+      _showMessage(errorMessage);
     }
+  }
+
+  void _showMessage(String message, {Color color = Colors.redAccent}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
+    );
+  }
+
+  void _showForgotPasswordDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final TextEditingController _forgotEmailController = TextEditingController();
+        return AlertDialog(
+          title: Text('Reset Password'),
+          content: TextField(
+            controller: _forgotEmailController,
+            decoration: InputDecoration(hintText: 'Masukkan email Anda'),
+          ),
+          actions: [
+            TextButton(
+              child: Text('BATAL'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            TextButton(
+              child: Text('KIRIM'),
+              onPressed: () async {
+                try {
+                  await _auth.sendPasswordResetEmail(
+                      email: _forgotEmailController.text.trim());
+                  Navigator.of(context).pop();
+                  _showMessage('Link reset password telah dikirim ke email Anda.', color: Colors.green);
+                } catch (e) {
+                  _showMessage('Gagal mengirim email: ${e.toString()}');
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: backgroundColor,
       body: Center(
-        child: Padding(
-          padding: EdgeInsets.all(20.0),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo aplikasi
-              Flexible(
-                child: Container(
-                  child: Image.asset(
-                    'assets/BrewsyLogo.png',
-                    fit: BoxFit.contain,
-                  ),
-                ),
+              SizedBox(
+                height: 500,
+                child: Image.asset('assets/BrewsyLogo.png'),
               ),
-
-              SizedBox(height: 10),
-
-
-
-
               SizedBox(height: 20),
-
-              // TextField untuk email
               TextField(
                 controller: _emailController,
-                decoration: InputDecoration(
-                  labelText: 'Email',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  filled: true,
-                  fillColor: Colors.blue[50],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10.0),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
+                decoration: _inputDecoration('Email'),
+                keyboardType: TextInputType.emailAddress,
               ),
-
               SizedBox(height: 20),
-
-              // TextField untuk password
               TextField(
                 controller: _passwordController,
                 obscureText: true,
-                decoration: InputDecoration(
-                  labelText: 'Password',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  filled: true,
-                  fillColor: Colors.blue[50],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10.0),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
+                decoration: _inputDecoration('Password'),
               ),
-
-              SizedBox(height: 20),
-
-              // Tautan "Daftar" dan "Lupa Password"
+              SizedBox(height: 10),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  TextButton(
-                    onPressed: () {
-                      // Aksi untuk navigasi ke halaman pendaftaran
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => RegisterPage()),
-                      );
+                  Checkbox(
+                    value: _rememberMe,
+                    onChanged: (value) {
+                      setState(() {
+                        _rememberMe = value ?? false;
+                      });
                     },
-                    child: Text(
-                      'Daftar',
-                      style: TextStyle(color: Colors.blueAccent),
-                    ),
                   ),
+                  Text('Ingat saya', style: TextStyle(color: primaryColor)),
+                  Spacer(),
                   TextButton(
-                    onPressed: () {
-                      // Aksi untuk lupa password
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Fitur lupa password belum tersedia.'),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
-                    },
-                    child: Text(
-                      'Lupa password ?',
-                      style: TextStyle(color: Colors.blueAccent),
-                    ),
+                    onPressed: _showForgotPasswordDialog,
+                    child: Text('Lupa Password?', style: TextStyle(color: secondaryColor)),
                   ),
                 ],
               ),
-
               SizedBox(height: 20),
-
-              // Tombol Login
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
+                  onPressed: _loginUser,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
+                    backgroundColor: primaryColor,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10.0),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  onPressed: _loginUser, // Panggil fungsi login
-                  child: Text(
-                    'LANJUT',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
+                  child: Text('LANJUT',
+                      style: TextStyle(fontSize: 18, color: Colors.white)),
                 ),
               ),
-
-              SizedBox(height: 20.0),
+              SizedBox(height: 10),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => RegisterPage()),
+                ),
+                child: Text('Belum punya akun? Daftar',
+                    style: TextStyle(color: secondaryColor)),
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  InputDecoration _inputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(color: primaryColor),
+      filled: true,
+      fillColor: primaryColor.withOpacity(0.1),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: secondaryColor, width: 2),
       ),
     );
   }
